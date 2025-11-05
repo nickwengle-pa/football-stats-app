@@ -1,4 +1,4 @@
-﻿import {
+import {
   addDoc,
   collection,
   deleteDoc,
@@ -68,6 +68,11 @@ const createDeferredUnsubscribe = (factory: () => Promise<Unsubscribe>): Unsubsc
   };
 };
 
+interface GameSubscriptionContext {
+  teamId?: string;
+  seasonId?: string;
+}
+
 export const upsertTeam = async (team: Team): Promise<Team> => {
   await ensureAuth();
   await setDoc(teamDoc(team.id), withoutId(team), { merge: true });
@@ -116,6 +121,18 @@ export const listOpponents = async (teamId: string): Promise<OpponentTeam[]> => 
   const snapshot = await getDocs(opponentsCollection(teamId));
   return snapshot.docs.map((docSnap) => {
     const data = docSnap.data() as Omit<OpponentTeam, 'id'>;
+    return { id: docSnap.id, ...data };
+  });
+};
+
+export const listGamesForSeason = async (
+  teamId: string,
+  seasonId: string
+): Promise<Game[]> => {
+  await ensureAuth();
+  const snapshot = await getDocs(seasonGamesCollection(teamId, seasonId));
+  return snapshot.docs.map((docSnap) => {
+    const data = docSnap.data() as Omit<Game, 'id'>;
     return { id: docSnap.id, ...data };
   });
 };
@@ -253,6 +270,21 @@ const prepareGameWrite = (
   return payload;
 };
 
+export const upsertSeasonGame = async (
+  teamId: string,
+  seasonId: string,
+  game: Game
+): Promise<Game> => {
+  await ensureAuth();
+  const payload = prepareGameWrite(game, teamId, seasonId);
+  if (!game.id) {
+    const docRef = await addDoc(seasonGamesCollection(teamId, seasonId), payload);
+    return { ...game, id: docRef.id, seasonId, myTeamId: teamId };
+  }
+  await setDoc(seasonGameDoc(teamId, seasonId, game.id), payload, { merge: true });
+  return { ...game, seasonId, myTeamId: teamId };
+};
+
 export const deleteSeasonGame = async (
   teamId: string,
   seasonId: string,
@@ -261,6 +293,19 @@ export const deleteSeasonGame = async (
   await ensureAuth();
   await deleteDoc(seasonGameDoc(teamId, seasonId, gameId));
 };
+
+export const subscribeToSeasonGames = (
+  teamId: string,
+  seasonId: string,
+  callback: (games: Game[]) => void
+) =>
+  createDeferredUnsubscribe(async () => {
+    await ensureAuth();
+    return onSnapshot(seasonGamesCollection(teamId, seasonId), (snap) =>
+      callback(snap.docs.map((docSnap) => extractEntity<Game>(docSnap)))
+    );
+  });
+
 export const saveGame = async (game: Game, context?: GameSubscriptionContext) => {
   await ensureAuth();
   const scopedTeamId = context?.teamId ?? game.myTeamId;

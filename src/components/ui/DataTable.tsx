@@ -9,6 +9,7 @@ import {
   TableCaption,
   Box,
   Text,
+  TableRowProps,
 } from '@chakra-ui/react';
 
 export type ColumnAlignment = 'left' | 'center' | 'right';
@@ -27,6 +28,9 @@ export interface DataTableProps<T> {
   keyExtractor?: (row: T, index: number) => React.Key;
   emptyState?: React.ReactNode;
   isStriped?: boolean;
+  rowProps?: (row: T, index: number) => TableRowProps;
+  onRowMouseEnter?: (row: T, index: number) => void;
+  onRowMouseLeave?: (row: T, index: number) => void;
 }
 
 export function DataTable<T>({
@@ -36,6 +40,9 @@ export function DataTable<T>({
   keyExtractor,
   emptyState,
   isStriped = true,
+  rowProps,
+  onRowMouseEnter,
+  onRowMouseLeave,
 }: DataTableProps<T>) {
   if (!data.length) {
     return (
@@ -82,7 +89,14 @@ export function DataTable<T>({
           {data.map((row, rowIndex) => (
             <TableRow
               key={keyExtractor ? keyExtractor(row, rowIndex) : rowIndex}
-              bg={isStriped && rowIndex % 2 === 1 ? 'brand.surface' : undefined}
+              {...(() => {
+                const customProps = rowProps ? rowProps(row, rowIndex) : {};
+                const { bg: customBg, ...rest } = customProps;
+                const defaultBg = isStriped && rowIndex % 2 === 1 ? 'brand.surface' : undefined;
+                return { bg: customBg ?? defaultBg, ...rest };
+              })()}
+              onMouseEnter={() => onRowMouseEnter?.(row, rowIndex)}
+              onMouseLeave={() => onRowMouseLeave?.(row, rowIndex)}
             >
               {columns.map((column, colIndex) => (
                 <TableCell

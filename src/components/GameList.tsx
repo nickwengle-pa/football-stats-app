@@ -305,21 +305,8 @@ const GameList: React.FC = () => {
   const [gameForm, setGameForm] = useState<GameFormState>(() => ({ ...defaultGameForm }));
   const [gameSaving, setGameSaving] = useState(false);
   const [gameFeedback, setGameFeedback] = useState<string | null>(null);
-  const [hoveredGameId, setHoveredGameId] = useState<string | null>(null);
 
   const [opponentRoster, setOpponentRoster] = useState<Player[]>(normalizeOpponentRoster([]));
-  const [opponentRosterSaving, setOpponentRosterSaving] = useState(false);
-  const [opponentRosterFeedback, setOpponentRosterFeedback] = useState<string | null>(null);
-  const [opponentRosterError, setOpponentRosterError] = useState<string | null>(null);
-  const [opponentPlayerFormOpen, setOpponentPlayerFormOpen] = useState(false);
-  const [opponentPlayerForm, setOpponentPlayerForm] = useState<OpponentPlayerFormState>(() =>
-    defaultOpponentPlayerForm()
-  );
-  const [editingOpponentPlayerId, setEditingOpponentPlayerId] = useState<string | null>(null);
-  const [opponentImportOpen, setOpponentImportOpen] = useState(false);
-  const [opponentImportText, setOpponentImportText] = useState('');
-  const [opponentImporting, setOpponentImporting] = useState(false);
-  const [opponentImportMessage, setOpponentImportMessage] = useState<ImporterMessage | null>(null);
 
   const [opponentFormOpen, setOpponentFormOpen] = useState(false);
   const [opponentForm, setOpponentForm] = useState<OpponentFormState>(() => defaultOpponentForm());
@@ -380,14 +367,6 @@ const GameList: React.FC = () => {
 
   const resetOpponentRosterUi = useCallback(() => {
     setOpponentRoster(normalizeOpponentRoster([]));
-    setOpponentRosterFeedback(null);
-    setOpponentRosterError(null);
-    setOpponentPlayerForm(defaultOpponentPlayerForm());
-    setOpponentPlayerFormOpen(false);
-    setEditingOpponentPlayerId(null);
-    setOpponentImportOpen(false);
-    setOpponentImportText('');
-    setOpponentImportMessage(null);
   }, []);
 
   const resetGameForm = useCallback(() => {
@@ -443,7 +422,7 @@ const GameList: React.FC = () => {
   const openCreateOpponent = useCallback(() => {
     resetOpponentFormState();
     setOpponentFormOpen(true);
-  }, [libraryRoster, resetOpponentFormState]);
+  }, [resetOpponentFormState]);
 
   const handleEditOpponent = useCallback(
     (opponent: OpponentTeam) => {
@@ -669,20 +648,7 @@ const GameList: React.FC = () => {
       opponentTeamId: nextGame.opponentTeamId ?? '',
     });
     setOpponentRoster(normalizeOpponentRoster(nextGame.opponentSnapshot?.roster ?? []));
-    setOpponentRosterFeedback(null);
-    setOpponentRosterError(null);
-    setOpponentPlayerForm(defaultOpponentPlayerForm());
-    setOpponentPlayerFormOpen(false);
-    setEditingOpponentPlayerId(null);
-    setOpponentImportOpen(false);
-    setOpponentImportText('');
-    setOpponentImportMessage(null);
-  }, [
-    selectedGameId,
-    games,
-    resetOpponentFormState,
-    resetOpponentRosterUi,
-  ]);
+  }, [selectedGameId, games, resetOpponentFormState, resetOpponentRosterUi]);
 
   const handleSeasonFormChange = (field: keyof SeasonFormState, value: string) => {
     setSeasonForm((prev) => ({ ...prev, [field]: value }));
@@ -956,240 +922,15 @@ const GameList: React.FC = () => {
     [activeSeason?.year]
   );
 
-  const persistOpponentRoster = useCallback(
-    async (nextPlayers: Player[], message: string) => {
-      const normalized = normalizeOpponentRoster(nextPlayers);
-      setOpponentRoster(normalized);
-      setOpponentRosterFeedback(message);
-      setOpponentRosterError(null);
-
-      if (!teamId || !activeSeasonId || !selectedGameId) {
-        if (!selectedGameId) {
-          setOpponentRosterFeedback(`${message} Save the game to keep these players.`);
-        }
-        return;
-      }
-
-      setOpponentRosterSaving(true);
-      try {
-        const existing = games.find((game) => game.id === selectedGameId);
-        if (!existing) {
-          setOpponentRosterSaving(false);
-          return;
-        }
-        const payload: Game = {
-          ...existing,
-          opponentTeamId: gameForm.opponentTeamId || existing.opponentTeamId,
-          opponentSnapshot: {
-            ...(existing.opponentSnapshot ?? {}),
-            roster: normalized,
-            seasonId: existing.opponentSnapshot?.seasonId ?? activeSeasonId,
-            teamId:
-              gameForm.opponentTeamId ||
-              existing.opponentTeamId ||
-              existing.opponentSnapshot?.teamId,
-          },
-          updatedAt: Timestamp.now(),
-        };
-        await upsertSeasonGame(teamId, activeSeasonId, payload);
-        setOpponentRosterFeedback(message);
-      } catch (error) {
-        console.error('Failed to save opponent roster', error);
-        setOpponentRosterError('Unable to save opponent roster. Please try again.');
-      } finally {
-        setOpponentRosterSaving(false);
-      }
+  const persistLibraryRoster = useCallback(
+    (players: Player[], successMessage?: string) => {
+      const normalized = normalizeOpponentRoster(players);
+      setLibraryRoster(normalized);
+      setLibraryRosterError(null);
+      setLibraryRosterFeedback(successMessage ?? null);
     },
-    [teamId, activeSeasonId, selectedGameId, games, gameForm.opponentTeamId]
+    []
   );
-
-  const openOpponentPlayerForm = () => {
-    setOpponentPlayerForm(defaultOpponentPlayerForm());
-    setOpponentPlayerFormOpen(true);
-    setEditingOpponentPlayerId(null);
-    setOpponentRosterError(null);
-    setOpponentRosterFeedback(null);
-  };
-
-  const handleOpponentPlayerFormChange = (field: keyof OpponentPlayerFormState, value: string) => {
-    setOpponentPlayerForm((prev) => ({ ...prev, [field]: value }));
-    setOpponentRosterError(null);
-  };
-
-  const handleEditOpponentPlayer = (player: Player) => {
-    if (isPlaceholderPlayer(player)) {
-      return;
-    }
-    setOpponentPlayerForm({
-      id: player.id,
-      name: player.preferredName ?? player.name ?? '',
-      jerseyNumber: player.jerseyNumber ? String(player.jerseyNumber) : '',
-      position: player.positions?.join(', ') ?? player.position ?? '',
-      grade:
-        typeof player.metadata?.grade === 'string'
-          ? (player.metadata.grade as string)
-          : player.classYear
-          ? String(player.classYear)
-          : '',
-      height: player.height ?? '',
-      weight: player.weight ?? '',
-    });
-    setOpponentPlayerFormOpen(true);
-    setEditingOpponentPlayerId(player.id ?? null);
-    setOpponentRosterError(null);
-    setOpponentRosterFeedback(null);
-  };
-
-  const handleDeleteOpponentPlayer = async (playerId?: string) => {
-    if (!playerId) return;
-    const target = opponentRoster.find((player) => player.id === playerId);
-    if (!target || isPlaceholderPlayer(target)) {
-      return;
-    }
-    const next = opponentRoster.filter((player) => player.id !== playerId);
-    await persistOpponentRoster(next, 'Opponent removed.');
-  };
-
-  const handleSaveOpponentPlayer = async () => {
-    const trimmedName = opponentPlayerForm.name.trim();
-    if (!trimmedName) {
-      setOpponentRosterError('Player name is required.');
-      return;
-    }
-
-    const jerseyRaw = opponentPlayerForm.jerseyNumber.trim();
-    const jerseyNumber = jerseyRaw ? Number(jerseyRaw) : undefined;
-    if (jerseyRaw && Number.isNaN(jerseyNumber)) {
-      setOpponentRosterError('Jersey number must be numeric.');
-      return;
-    }
-
-    const positions = opponentPlayerForm.position
-      .split(/[,/]/)
-      .map((value) => value.trim())
-      .filter(Boolean);
-
-    const metadata: Record<string, unknown> = {};
-    const gradeLabel = opponentPlayerForm.grade.trim();
-    if (gradeLabel) {
-      metadata.grade = gradeLabel;
-    }
-
-    const player: Player = {
-      id: editingOpponentPlayerId ?? uuidv4(),
-      name: trimmedName,
-      preferredName: trimmedName,
-      stats: {},
-      metadata: Object.keys(metadata).length ? metadata : undefined,
-    };
-
-    if (Number.isFinite(jerseyNumber)) {
-      player.jerseyNumber = jerseyNumber as number;
-    }
-    if (positions.length) {
-      player.position = positions[0];
-      player.positions = positions;
-    }
-    if (gradeLabel && /^\d{4}$/.test(gradeLabel)) {
-      const classYearValue = Number(gradeLabel);
-      player.classYear = classYearValue;
-    }
-    if (opponentPlayerForm.height.trim()) {
-      player.height = opponentPlayerForm.height.trim();
-    }
-    if (opponentPlayerForm.weight.trim()) {
-      player.weight = opponentPlayerForm.weight.trim();
-    }
-
-    let nextRoster: Player[];
-    if (editingOpponentPlayerId) {
-      nextRoster = opponentRoster.map((existing) =>
-        existing.id === editingOpponentPlayerId ? { ...existing, ...player } : existing
-      );
-    } else {
-      nextRoster = [...opponentRoster, player];
-    }
-
-    await persistOpponentRoster(nextRoster, 'Opponent player saved.');
-    setOpponentPlayerForm(defaultOpponentPlayerForm());
-    setOpponentPlayerFormOpen(false);
-    setEditingOpponentPlayerId(null);
-  };
-
-  const handleCancelOpponentPlayer = () => {
-    setOpponentPlayerForm(defaultOpponentPlayerForm());
-    setOpponentPlayerFormOpen(false);
-    setEditingOpponentPlayerId(null);
-  };
-
-  const handleImportOpponentRoster = async () => {
-    const raw = opponentImportText.trim();
-    if (!raw) {
-      setOpponentImportMessage({
-        tone: 'error',
-        text: 'Paste the roster text from MaxPreps before importing.',
-      });
-      return;
-    }
-
-    setOpponentImporting(true);
-    setOpponentImportMessage(null);
-    setOpponentRosterFeedback(null);
-    setOpponentRosterError(null);
-
-    try {
-      const { players: parsedPlayers, issues } = parseMaxPrepsOpponentRoster(raw);
-      if (!parsedPlayers.length) {
-        const errorLines = [
-          'No players were imported from the pasted roster.',
-          ...(issues.length
-            ? issues.slice(0, 5).map((issue) => `- ${issue}`)
-            : ['Make sure you include the header row and at least one player.']),
-        ];
-        if (issues.length > 5) {
-          errorLines.push(`- and ${issues.length - 5} more issues.`);
-        }
-        setOpponentImportMessage({ tone: 'error', text: errorLines.join('\n') });
-        return;
-      }
-
-      await persistOpponentRoster(parsedPlayers, `${parsedPlayers.length} players imported.`);
-      setOpponentImportText('');
-      setOpponentImportOpen(false);
-      if (issues.length) {
-        const summary = [
-          `${issues.length} entries were skipped or adjusted:`,
-          ...issues.slice(0, 5).map((issue) => `- ${issue}`),
-        ];
-        if (issues.length > 5) {
-          summary.push(`...and ${issues.length - 5} more issues.`);
-        }
-        setOpponentImportMessage({ tone: 'info', text: summary.join('\n') });
-      } else {
-        setOpponentImportMessage({
-          tone: 'success',
-          text: 'Roster imported successfully from MaxPreps.',
-        });
-      }
-    } catch (error) {
-      console.error('Failed to import opponent roster', error);
-      setOpponentImportMessage({
-        tone: 'error',
-        text: 'Unable to import roster. Please try again.',
-      });
-    } finally {
-      setOpponentImporting(false);
-    }
-  };
-
-  const persistLibraryRoster = useCallback((nextPlayers: Player[], message?: string) => {
-    const normalized = normalizeOpponentRoster(nextPlayers);
-    setLibraryRoster(normalized);
-    if (message) {
-      setLibraryRosterFeedback(message);
-    }
-    setLibraryRosterError(null);
-  }, []);
 
   const openLibraryPlayerForm = useCallback(() => {
     setLibraryPlayerForm(defaultOpponentPlayerForm());
@@ -1203,45 +944,17 @@ const GameList: React.FC = () => {
     (field: keyof OpponentPlayerFormState, value: string) => {
       setLibraryPlayerForm((prev) => ({ ...prev, [field]: value }));
       setLibraryRosterError(null);
-    },
-    []
-  );
-
-  const handleLibraryEditPlayer = useCallback(
-    (player: Player) => {
-      if (isPlaceholderPlayer(player)) return;
-      setLibraryPlayerForm({
-        id: player.id,
-        name: player.preferredName ?? player.name ?? '',
-        jerseyNumber: player.jerseyNumber ? String(player.jerseyNumber) : '',
-        position: player.positions?.join(', ') ?? player.position ?? '',
-        grade:
-          typeof player.metadata?.grade === 'string'
-            ? (player.metadata.grade as string)
-            : player.classYear
-            ? String(player.classYear)
-            : '',
-        height: player.height ?? '',
-        weight: player.weight ?? '',
-      });
-      setLibraryPlayerFormOpen(true);
-      setLibraryEditingPlayerId(player.id ?? null);
-      setLibraryRosterError(null);
       setLibraryRosterFeedback(null);
     },
     []
   );
 
-  const handleLibraryDeletePlayer = useCallback(
-    (playerId?: string) => {
-      if (!playerId) return;
-      const target = libraryRoster.find((player) => player.id === playerId);
-      if (!target || isPlaceholderPlayer(target)) return;
-      const next = libraryRoster.filter((player) => player.id !== playerId);
-      persistLibraryRoster(next, 'Opponent removed from library roster.');
-    },
-    [libraryRoster, persistLibraryRoster]
-  );
+  const handleLibraryCancelPlayer = useCallback(() => {
+    setLibraryPlayerForm(defaultOpponentPlayerForm());
+    setLibraryPlayerFormOpen(false);
+    setLibraryEditingPlayerId(null);
+    setLibraryRosterError(null);
+  }, []);
 
   const handleLibrarySavePlayer = useCallback(() => {
     const trimmedName = libraryPlayerForm.name.trim();
@@ -1250,75 +963,130 @@ const GameList: React.FC = () => {
       return;
     }
 
-    const jerseyRaw = libraryPlayerForm.jerseyNumber.trim();
-    const jerseyNumber = jerseyRaw ? Number(jerseyRaw) : undefined;
-    if (jerseyRaw && Number.isNaN(jerseyNumber)) {
-      setLibraryRosterError('Jersey number must be numeric.');
+    const jerseyInput = libraryPlayerForm.jerseyNumber.trim();
+    let jerseyNumber: number | undefined;
+    if (jerseyInput) {
+      const parsed = Number(jerseyInput);
+      if (!Number.isInteger(parsed)) {
+        setLibraryRosterError('Jersey number must be a whole number.');
+        return;
+      }
+      if (parsed < 0 || parsed > 999) {
+        setLibraryRosterError('Jersey number must be between 0 and 999.');
+        return;
+      }
+      jerseyNumber = parsed;
+    }
+
+    const positionTokens = libraryPlayerForm.position
+      .split(/[,/]/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    const gradeLabel = libraryPlayerForm.grade.trim();
+    const height = libraryPlayerForm.height.trim();
+    const weight = libraryPlayerForm.weight.trim();
+
+    const existingPlayer = libraryEditingPlayerId
+      ? libraryRoster.find((player) => player.id === libraryEditingPlayerId)
+      : undefined;
+
+    if (existingPlayer && isPlaceholderPlayer(existingPlayer)) {
+      setLibraryRosterError('The TEAM placeholder cannot be edited.');
       return;
     }
 
-    const positions = libraryPlayerForm.position
-      .split(/[,/]/)
-      .map((value) => value.trim())
-      .filter(Boolean);
-
-    const metadata: Record<string, unknown> = {};
-    const gradeLabel = libraryPlayerForm.grade.trim();
-    if (gradeLabel) {
-      metadata.grade = gradeLabel;
-    }
-
-    const player: Player = {
-      id: libraryEditingPlayerId ?? uuidv4(),
+    const stats = existingPlayer?.stats ?? {};
+    const nextPlayer: Player = {
+      ...(existingPlayer ?? { id: uuidv4(), stats }),
+      stats,
       name: trimmedName,
       preferredName: trimmedName,
-      stats: {},
-      metadata: Object.keys(metadata).length ? metadata : undefined,
     };
 
-    if (Number.isFinite(jerseyNumber)) {
-      player.jerseyNumber = jerseyNumber as number;
+    nextPlayer.jerseyNumber = jerseyNumber;
+    if (positionTokens.length) {
+      nextPlayer.position = positionTokens[0];
+      nextPlayer.positions = positionTokens;
+    } else {
+      nextPlayer.position = undefined;
+      nextPlayer.positions = undefined;
     }
-    if (positions.length) {
-      player.position = positions[0];
-      player.positions = positions;
-    }
-    if (gradeLabel && /^\d{4}$/.test(gradeLabel)) {
-      player.classYear = Number(gradeLabel);
-    }
-    if (libraryPlayerForm.height.trim()) {
-      player.height = libraryPlayerForm.height.trim();
-    }
-    if (libraryPlayerForm.weight.trim()) {
-      player.weight = libraryPlayerForm.weight.trim();
-    }
+    nextPlayer.height = height || undefined;
+    nextPlayer.weight = weight || undefined;
 
-    let nextRoster: Player[];
-    if (libraryEditingPlayerId) {
-      nextRoster = libraryRoster.map((existing) =>
-        existing.id === libraryEditingPlayerId ? { ...existing, ...player } : existing
+    const metadata = { ...(nextPlayer.metadata ?? {}) };
+    if (gradeLabel) {
+      metadata.grade = gradeLabel;
+    } else {
+      delete metadata.grade;
+    }
+    nextPlayer.metadata = Object.keys(metadata).length ? metadata : undefined;
+
+    let updatedRoster: Player[];
+    if (existingPlayer) {
+      updatedRoster = libraryRoster.map((player) =>
+        player.id === existingPlayer.id ? nextPlayer : player
       );
     } else {
-      nextRoster = [...libraryRoster, player];
+      const withoutPlaceholder = libraryRoster.filter((player) => !isPlaceholderPlayer(player));
+      updatedRoster = [...withoutPlaceholder, nextPlayer];
     }
-    persistLibraryRoster(nextRoster, 'Library roster updated.');
+
+    persistLibraryRoster(
+      updatedRoster,
+      existingPlayer ? 'Player updated.' : 'Player added.'
+    );
     setLibraryPlayerForm(defaultOpponentPlayerForm());
     setLibraryPlayerFormOpen(false);
     setLibraryEditingPlayerId(null);
   }, [
-    libraryPlayerForm,
     libraryEditingPlayerId,
+    libraryPlayerForm,
     libraryRoster,
     persistLibraryRoster,
   ]);
 
-  const handleLibraryCancelPlayer = useCallback(() => {
-    setLibraryPlayerForm(defaultOpponentPlayerForm());
-    setLibraryPlayerFormOpen(false);
-    setLibraryEditingPlayerId(null);
+  const handleLibraryEditPlayer = useCallback((player: Player) => {
+    if (isPlaceholderPlayer(player)) {
+      return;
+    }
+    setLibraryPlayerForm({
+      id: player.id,
+      name: player.preferredName ?? player.name ?? '',
+      jerseyNumber:
+        typeof player.jerseyNumber === 'number' ? String(player.jerseyNumber) : '',
+      position: player.positions?.join(', ') ?? player.position ?? '',
+      grade: typeof player.metadata?.grade === 'string' ? String(player.metadata.grade) : '',
+      height: player.height ?? '',
+      weight: player.weight ?? '',
+    });
+    setLibraryEditingPlayerId(player.id ?? null);
+    setLibraryPlayerFormOpen(true);
+    setLibraryRosterError(null);
+    setLibraryRosterFeedback(null);
   }, []);
 
-  const handleLibraryImportRoster = useCallback(async () => {
+  const handleLibraryDeletePlayer = useCallback(
+    (playerId: string) => {
+      const target = libraryRoster.find((player) => player.id === playerId);
+      if (!target || isPlaceholderPlayer(target)) {
+        return;
+      }
+
+      const updatedRoster = libraryRoster.filter((player) => player.id !== playerId);
+      persistLibraryRoster(updatedRoster, 'Player removed.');
+
+      if (libraryEditingPlayerId === playerId) {
+        setLibraryPlayerForm(defaultOpponentPlayerForm());
+        setLibraryPlayerFormOpen(false);
+        setLibraryEditingPlayerId(null);
+      }
+    },
+    [libraryEditingPlayerId, libraryRoster, persistLibraryRoster]
+  );
+
+  const handleLibraryImportRoster = useCallback(() => {
     const raw = libraryImportText.trim();
     if (!raw) {
       setLibraryImportMessage({
@@ -1366,7 +1134,7 @@ const GameList: React.FC = () => {
         text: 'Unable to import roster. Please try again.',
       });
     }
-  }, [libraryImportText, persistLibraryRoster, parseMaxPrepsOpponentRoster]);
+  }, [libraryImportText, parseMaxPrepsOpponentRoster, persistLibraryRoster]);
 
   const handleCreateSeason = async () => {
     if (!teamId) return;
@@ -1483,6 +1251,29 @@ const GameList: React.FC = () => {
   };
 
   const gamesTableData = useMemo(() => sortGames(games), [games]);
+
+  const gameRowProps = useCallback(
+    (row: Game) => {
+      const baseBg =
+        row.site === 'home'
+          ? 'green.50'
+          : row.site === 'away'
+          ? 'orange.50'
+          : 'gray.50';
+      const hoverBg =
+        row.site === 'home'
+          ? 'green.100'
+          : row.site === 'away'
+          ? 'orange.100'
+          : 'gray.100';
+      return {
+        bg: baseBg,
+        _hover: { bg: hoverBg },
+        transition: 'background-color 0.2s ease',
+      };
+    },
+    []
+  );
 
   const gameColumns: DataTableColumn<Game>[] = [
     {
@@ -1637,71 +1428,6 @@ const GameList: React.FC = () => {
     },
   ];
 
-  const gameOpponentColumns: DataTableColumn<Player>[] = [
-    {
-      header: '#',
-      accessor: (row) => (
-        <Text fontWeight="600" textAlign="center">
-          {typeof row.jerseyNumber === 'number' ? `#${row.jerseyNumber}` : '--'}
-        </Text>
-      ),
-      align: 'center',
-      width: '70px',
-    },
-    {
-      header: 'Player',
-      accessor: (row) => (
-        <Stack gap={0}>
-          <Text fontWeight="600">{row.preferredName ?? row.name}</Text>
-          <Text fontSize="xs" color="text.secondary">
-            {isPlaceholderPlayer(row) ? 'Roster placeholder' : formatGradeLabel(row)}
-          </Text>
-        </Stack>
-      ),
-    },
-    {
-      header: 'Position',
-      accessor: (row) => (
-        <Text fontSize="sm" color="text.secondary">
-          {row.positions?.join(', ') ?? row.position ?? '—'}
-        </Text>
-      ),
-      width: '160px',
-    },
-    {
-      header: 'Ht / Wt',
-      accessor: (row) => (
-        <Text fontSize="sm" color="text.secondary">
-          {row.height || row.weight ? [row.height, row.weight].filter(Boolean).join(' / ') : '—'}
-        </Text>
-      ),
-      width: '160px',
-    },
-    {
-      header: 'Actions',
-      accessor: (row) =>
-        isPlaceholderPlayer(row) ? (
-          <Text fontSize="xs" color="text.secondary">
-            Locked
-          </Text>
-        ) : (
-          <HStack gap={2}>
-            <Button size="xs" variant="ghost" onClick={() => handleEditOpponentPlayer(row)}>
-              Edit
-            </Button>
-            <Button
-              size="xs"
-              variant="ghost"
-              colorScheme="red"
-              onClick={() => handleDeleteOpponentPlayer(row.id)}
-            >
-              Remove
-            </Button>
-          </HStack>
-        ),
-      width: '180px',
-    },
-  ];
 
   const libraryOpponentColumns: DataTableColumn<Player>[] = [
     {
@@ -1976,6 +1702,8 @@ const GameList: React.FC = () => {
               data={gamesTableData}
               columns={gameColumns}
               keyExtractor={(row) => row.id}
+              isStriped={false}
+              rowProps={gameRowProps}
               emptyState={
                 <Stack gap={3} align="center">
                   <Text fontWeight="600">No games yet</Text>
@@ -2696,253 +2424,12 @@ const GameList: React.FC = () => {
         </Stack>
       </SectionCard>
 
-      <SectionCard
-        title="Opponent Roster"
-        description="Paste a MaxPreps roster or add players manually. The TEAM placeholder (#100) stays for reporting."
-        actions={
-          <HStack gap={2}>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setOpponentImportOpen((prev) => !prev);
-                setOpponentImportMessage(null);
-              }}
-            >
-              {opponentImportOpen ? 'Close Importer' : 'Import from MaxPreps'}
-            </Button>
-            <Button size="sm" onClick={openOpponentPlayerForm}>
-              {opponentPlayerFormOpen ? 'Editing Player' : 'Add Player'}
-            </Button>
-          </HStack>
-        }
-      >
-        <Stack gap={4}>
-          <Stack gap={2}>
-            <Text fontSize="sm" color="text.secondary">
-              {selectedGameId
-                ? 'Roster changes save automatically for this matchup.'
-                : 'Save the game after editing to keep the opponent roster.'}
-            </Text>
-            {opponentRosterSaving && (
-              <HStack gap={2}>
-                <Spinner size="sm" color="brand.primary" />
-                <Text fontSize="sm" color="text.secondary">
-                  Saving opponent roster...
-                </Text>
-              </HStack>
-            )}
-          </Stack>
-
-          {opponentImportOpen && (
-            <Stack
-              gap={3}
-              border="1px solid"
-              borderColor="border.subtle"
-              borderRadius="md"
-              bg="brand.surface"
-              px={4}
-              py={4}
-            >
-              <Stack gap={1}>
-                <Text fontWeight="600">Paste roster from MaxPreps.com</Text>
-                <Text fontSize="sm" color="text.secondary">
-                  Copy the roster table (Ctrl+C) starting with the header row. We'll handle the rest.
-                </Text>
-              </Stack>
-              <chakra.textarea
-                value={opponentImportText}
-                onChange={(event) => {
-                  setOpponentImportText(event.target.value);
-                  setOpponentImportMessage(null);
-                }}
-                minH="200px"
-                border="1px solid"
-                borderColor="border.subtle"
-                borderRadius="md"
-                px={3}
-                py={2}
-                fontFamily="mono"
-                fontSize="sm"
-                placeholder="Paste opponent roster text here..."
-              />
-              {opponentImportMessage && (
-                <Text
-                  fontSize="xs"
-                  color={
-                    opponentImportMessage.tone === 'error'
-                      ? 'red.500'
-                      : opponentImportMessage.tone === 'success'
-                      ? 'brand.primary'
-                      : 'text.secondary'
-                  }
-                  whiteSpace="pre-wrap"
-                >
-                  {opponentImportMessage.text}
-                </Text>
-              )}
-              <HStack justify="flex-end" gap={2}>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setOpponentImportOpen(false);
-                    setOpponentImportText('');
-                    setOpponentImportMessage(null);
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  bg="brand.primary"
-                  color="white"
-                  onClick={handleImportOpponentRoster}
-                  disabled={opponentImporting}
-                >
-                  {opponentImporting ? 'Importing...' : 'Import Roster'}
-                </Button>
-              </HStack>
-            </Stack>
-          )}
-
-          {opponentRosterError && (
-            <Box border="1px solid" borderColor="red.400" borderRadius="md" px={4} py={3} bg="brand.surface">
-              <Text fontSize="sm" color="red.500">
-                {opponentRosterError}
-              </Text>
-            </Box>
-          )}
-          {opponentRosterFeedback && (
-            <Text fontSize="xs" color="brand.primary">
-              {opponentRosterFeedback}
-            </Text>
-          )}
-
-          <DataTable
-            data={opponentRoster}
-            columns={gameOpponentColumns}
-            keyExtractor={(player) => player.id ?? `${player.name}-${player.jerseyNumber}`}
-            emptyState={
-              <Stack gap={3} align="center">
-                <Text fontWeight="600">Opponent roster pending</Text>
-                <Text fontSize="sm" color="text.secondary" textAlign="center">
-                  Import from MaxPreps or add players manually.
-                </Text>
-              </Stack>
-            }
-          />
-
-          {opponentPlayerFormOpen && (
-            <Stack
-              gap={4}
-              border="1px solid"
-              borderColor="border.subtle"
-              borderRadius="md"
-              bg="brand.surface"
-              px={4}
-              py={4}
-            >
-              <Stack direction={{ base: 'column', md: 'row' }} gap={4}>
-                <Stack gap={1} flex="1">
-                  <Text fontSize="sm" color="text.secondary" fontWeight="600">
-                    Player name
-                  </Text>
-                  <Input
-                    placeholder="Player name"
-                    value={opponentPlayerForm.name}
-                    onChange={(event) =>
-                      handleOpponentPlayerFormChange('name', event.target.value)
-                    }
-                  />
-                </Stack>
-                <Stack gap={1} maxW={{ base: '100%', md: '140px' }}>
-                  <Text fontSize="sm" color="text.secondary" fontWeight="600">
-                    Jersey #
-                  </Text>
-                  <Input
-                    type="number"
-                    value={opponentPlayerForm.jerseyNumber}
-                    onChange={(event) =>
-                      handleOpponentPlayerFormChange('jerseyNumber', event.target.value)
-                    }
-                  />
-                </Stack>
-                <Stack gap={1} flex="1">
-                  <Text fontSize="sm" color="text.secondary" fontWeight="600">
-                    Positions
-                  </Text>
-                  <Input
-                    placeholder="RB, OLB"
-                    value={opponentPlayerForm.position}
-                    onChange={(event) =>
-                      handleOpponentPlayerFormChange('position', event.target.value)
-                    }
-                  />
-                </Stack>
-              </Stack>
-
-              <Stack direction={{ base: 'column', md: 'row' }} gap={4}>
-                <Stack gap={1} maxW={{ base: '100%', md: '160px' }}>
-                  <Text fontSize="sm" color="text.secondary" fontWeight="600">
-                    Grade / Class
-                  </Text>
-                  <Input
-                    placeholder="Sr. or 2026"
-                    value={opponentPlayerForm.grade}
-                    onChange={(event) =>
-                      handleOpponentPlayerFormChange('grade', event.target.value)
-                    }
-                  />
-                </Stack>
-                <Stack gap={1} maxW={{ base: '100%', md: '160px' }}>
-                  <Text fontSize="sm" color="text.secondary" fontWeight="600">
-                    Height
-                  </Text>
-                  <Input
-                    placeholder="6'2&quot;"
-                    value={opponentPlayerForm.height}
-                    onChange={(event) =>
-                      handleOpponentPlayerFormChange('height', event.target.value)
-                    }
-                  />
-                </Stack>
-                <Stack gap={1} maxW={{ base: '100%', md: '160px' }}>
-                  <Text fontSize="sm" color="text.secondary" fontWeight="600">
-                    Weight
-                  </Text>
-                  <Input
-                    placeholder="215 lbs"
-                    value={opponentPlayerForm.weight}
-                    onChange={(event) =>
-                      handleOpponentPlayerFormChange('weight', event.target.value)
-                    }
-                  />
-                </Stack>
-              </Stack>
-
-              <HStack justify="flex-end" gap={2}>
-                <Button size="sm" variant="ghost" onClick={handleCancelOpponentPlayer}>
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  bg="brand.primary"
-                  color="white"
-                  onClick={handleSaveOpponentPlayer}
-                >
-                  {editingOpponentPlayerId ? 'Update Player' : 'Add Player'}
-                </Button>
-              </HStack>
-            </Stack>
-          )}
-        </Stack>
-      </SectionCard>
     </Stack>
   );
 };
 
 export default GameList;
+
 
 
 
