@@ -2431,9 +2431,3 @@ const GameList: React.FC = () => {
 export default GameList;
 
 
-
-
-
-
-
-
