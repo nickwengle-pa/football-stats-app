@@ -35,8 +35,16 @@ export const SectionCard: React.FC<SectionCardProps> = ({
           gap={3}
         >
           <Stack gap={1}>
-            {title && <Heading size="md">{title}</Heading>}
-            {description && <Text color="text.secondary">{description}</Text>}
+            {title && (
+              <Heading size="md" color="brand.primary" fontWeight="700">
+                {title}
+              </Heading>
+            )}
+            {description && (
+              <Text color="brand.secondary" fontWeight="500">
+                {description}
+              </Text>
+            )}
           </Stack>
           {actions && (
             <Flex
