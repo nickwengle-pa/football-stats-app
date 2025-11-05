@@ -878,7 +878,7 @@ const TeamManager: React.FC = () => {
             <Stack gap={0}>
               <Text fontWeight="600">{row.preferredName ?? row.name}</Text>
               {(row.position || row.positions?.length) && (
-                <Text fontSize="xs" color="text.secondary">
+                <Text fontSize="xs" color="brand.secondary">
                   {row.positions?.length ? row.positions.join(', ') : row.position}
                 </Text>
               )}
@@ -1121,7 +1121,7 @@ const TeamManager: React.FC = () => {
     return (
       <Stack align="center" justify="center" minH="60vh" gap={3}>
         <Spinner size="lg" color="brand.primary" />
-        <Text color="text.secondary">Loading team data...</Text>
+        <Text color="brand.secondary">Loading team data...</Text>
       </Stack>
     );
   }
@@ -1129,7 +1129,7 @@ const TeamManager: React.FC = () => {
   if (teamError && !team) {
     return (
       <SectionCard title="Team Manager">
-        <Text color="text.secondary">{teamError}</Text>
+        <Text color="brand.secondary">{teamError}</Text>
       </SectionCard>
     );
   }
@@ -1139,7 +1139,7 @@ const TeamManager: React.FC = () => {
       <SectionCard title="Team Manager">
         <Stack gap={3} align="center">
           <Text fontWeight="600">Season setup required</Text>
-          <Text color="text.secondary" textAlign="center">
+          <Text color="brand.secondary" textAlign="center">
             Create a season for your program to manage coaches and rosters.
           </Text>
           <Button size="sm" variant="outline" borderColor="brand.primary" color="brand.primary" disabled>
@@ -1175,7 +1175,7 @@ const TeamManager: React.FC = () => {
         actions={
           seasons.length > 0 ? (
             <HStack gap={2} align="center">
-              <Text fontSize="sm" color="text.secondary">
+              <Text fontSize="sm" color="brand.secondary">
                 Season
               </Text>
               <chakra.select
@@ -1212,18 +1212,18 @@ const TeamManager: React.FC = () => {
             p={4}
             bg="bg.surface"
           >
-            <Text fontSize="sm" color="text.secondary">
+            <Text fontSize="sm" color="brand.secondary">
               Team
             </Text>
             <Text fontWeight="600">{team.name}</Text>
             {team.mascot && (
-              <Text fontSize="sm" color="text.secondary">
+              <Text fontSize="sm" color="brand.secondary">
                 Mascot: {team.mascot}
               </Text>
             )}
             <Stack w="100%" mt={3} gap={2}>
               <HStack justify="space-between" align="center">
-                <Text fontSize="sm" color="text.secondary">
+                <Text fontSize="sm" color="brand.secondary">
                   Coaches
                 </Text>
                 <Button size="xs" variant="outline" borderColor="brand.primary" color="brand.primary" onClick={openCreateCoach}>
@@ -1231,12 +1231,12 @@ const TeamManager: React.FC = () => {
                 </Button>
               </HStack>
               {coachFeedback && (
-                <Text fontSize="xs" color="text.secondary">
+                <Text fontSize="xs" color="brand.secondary">
                   {coachFeedback}
                 </Text>
               )}
               {coaches.length === 0 ? (
-                <Text fontSize="sm" color="text.secondary">
+                <Text fontSize="sm" color="brand.secondary">
                   No coaches recorded yet. Add your staff to appear on rosters and printable reports.
                 </Text>
               ) : (
@@ -1273,7 +1273,7 @@ const TeamManager: React.FC = () => {
                       >
                         <Box>
                           <Text fontWeight="600">{coach.name}</Text>
-                          <Text fontSize="xs" color="text.secondary">
+                          <Text fontSize="xs" color="brand.secondary">
                             {coach.role}
                           </Text>
                         </Box>
@@ -1312,7 +1312,7 @@ const TeamManager: React.FC = () => {
                 <Stack gap={3} border="1px solid" borderColor="border.subtle" borderRadius="md" p={3}>
                   <Text fontWeight="600">{editingCoachId ? 'Edit Coach' : 'Add Coach'}</Text>
                   <Stack gap={1}>
-                    <Text fontSize="sm" color="text.secondary">
+                    <Text fontSize="sm" color="brand.secondary">
                       Name *
                     </Text>
                     <chakra.input
@@ -1327,7 +1327,7 @@ const TeamManager: React.FC = () => {
                     />
                   </Stack>
                   <Stack gap={1}>
-                    <Text fontSize="sm" color="text.secondary">
+                    <Text fontSize="sm" color="brand.secondary">
                       Role
                     </Text>
                     <chakra.input
@@ -1394,7 +1394,7 @@ const TeamManager: React.FC = () => {
               },
             }}
           >
-            <Text fontSize="sm" color="text.secondary">
+            <Text fontSize="sm" color="brand.secondary">
               Logo & Colors
             </Text>
 
@@ -1425,10 +1425,10 @@ const TeamManager: React.FC = () => {
                   />
                 ) : (
                   <Stack gap={1} align="center">
-                    <Text fontSize="xs" color="text.secondary" textAlign="center">
+                    <Text fontSize="xs" color="brand.secondary" textAlign="center">
                       No logo uploaded
                     </Text>
-                    <Text fontSize="xs" color="text.secondary" textAlign="center">
+                    <Text fontSize="xs" color="brand.secondary" textAlign="center">
                       Recommended: transparent PNG
                     </Text>
                   </Stack>
@@ -1480,7 +1480,7 @@ const TeamManager: React.FC = () => {
 
             <SimpleGrid columns={{ base: 1, md: 3 }} gap={3} w="100%" mt={4}>
               <Stack gap={1} align="center">
-                <Text fontSize="xs" color="text.secondary">
+                <Text fontSize="xs" color="brand.secondary">
                   Primary
                 </Text>
                 <chakra.input
@@ -1495,7 +1495,7 @@ const TeamManager: React.FC = () => {
                 />
               </Stack>
               <Stack gap={1} align="center">
-                <Text fontSize="xs" color="text.secondary">
+                <Text fontSize="xs" color="brand.secondary">
                   Secondary
                 </Text>
                 <chakra.input
@@ -1510,7 +1510,7 @@ const TeamManager: React.FC = () => {
                 />
               </Stack>
               <Stack gap={1} align="center">
-                <Text fontSize="xs" color="text.secondary">
+                <Text fontSize="xs" color="brand.secondary">
                   Accent
                 </Text>
                 <chakra.input
@@ -1538,7 +1538,7 @@ const TeamManager: React.FC = () => {
                       borderColor="border.subtle"
                       bg={entry.value}
                     />
-                    <Text fontSize="xs" color="text.secondary">
+                    <Text fontSize="xs" color="brand.secondary">
                       {entry.label}
                     </Text>
                   </VStack>
@@ -1633,7 +1633,7 @@ const TeamManager: React.FC = () => {
           >
             <Stack gap={1}>
               <Text fontWeight="600">Paste roster from MaxPreps.com</Text>
-              <Text fontSize="sm" color="text.secondary">
+              <Text fontSize="sm" color="brand.secondary">
                 Copy the roster table from MaxPreps (Ctrl+C) and paste it here. We'll read everything after the column
                 header row and add each player automatically.
               </Text>
@@ -1664,7 +1664,7 @@ const TeamManager: React.FC = () => {
                     ? 'red.500'
                     : importerMessage.tone === 'success'
                     ? 'brand.primary'
-                    : 'text.secondary'
+                    : 'brand.secondary'
                 }
                 whiteSpace="pre-wrap"
               >
@@ -1720,7 +1720,7 @@ const TeamManager: React.FC = () => {
         {rosterLoading ? (
           <HStack gap={3}>
             <Spinner size="sm" color="brand.primary" />
-            <Text fontSize="sm" color="text.secondary">
+            <Text fontSize="sm" color="brand.secondary">
               Loading roster...
             </Text>
           </HStack>
@@ -1732,7 +1732,7 @@ const TeamManager: React.FC = () => {
             emptyState={
               <Stack gap={3} align="center">
                 <Text fontWeight="600">No players yet</Text>
-                <Text fontSize="sm" color="text.secondary" textAlign="center">
+                <Text fontSize="sm" color="brand.secondary" textAlign="center">
                   Import from MaxPreps or add players manually to build the game-day depth chart.
                 </Text>
                 <Button

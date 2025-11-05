@@ -56,7 +56,7 @@ export function DataTable<T>({
         textAlign="center"
       >
         {emptyState || (
-          <Text color="text.secondary" fontSize="sm">
+          <Text color="brand.secondary" fontSize="sm" fontWeight="500">
             No records yet. Add your first entry to populate this table.
           </Text>
         )}
@@ -75,8 +75,8 @@ export function DataTable<T>({
                 key={index}
                 textAlign={column.align ?? 'left'}
                 fontSize="sm"
-                color="text.secondary"
-                fontWeight="600"
+                color="brand.primary"
+                fontWeight="700"
                 scope="col"
                 width={column.width}
               >

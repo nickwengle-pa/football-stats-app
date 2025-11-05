@@ -1281,7 +1281,7 @@ const GameList: React.FC = () => {
       accessor: (row) => (
         <Stack gap={0}>
           <Text fontWeight="600">{row.opponentName ?? row.opponent ?? 'Opponent TBD'}</Text>
-          <Text fontSize="xs" color="text.secondary">
+          <Text fontSize="xs" color="brand.secondary">
             {formatGameDate(row.date)}
           </Text>
         </Stack>
@@ -1299,7 +1299,7 @@ const GameList: React.FC = () => {
     {
       header: 'Kickoff',
       accessor: (row) => (
-        <Text fontSize="sm" color="text.secondary">
+        <Text fontSize="sm" color="brand.secondary">
           {formatGameTime(row.kickoffTime, row.date)}
         </Text>
       ),
@@ -1357,12 +1357,12 @@ const GameList: React.FC = () => {
               )}
             </HStack>
             {row.mascot && (
-              <Text fontSize="xs" color="text.secondary">
+              <Text fontSize="xs" color="brand.secondary">
                 {row.mascot}
               </Text>
             )}
             {row.shortName && row.shortName !== row.name && (
-              <Text fontSize="xs" color="text.secondary">
+              <Text fontSize="xs" color="brand.secondary">
                 {row.shortName}
               </Text>
             )}
@@ -1397,8 +1397,8 @@ const GameList: React.FC = () => {
     {
       header: 'Location',
       accessor: (row) => (
-        <Text fontSize="sm" color="text.secondary">
-          {row.location || '—'}
+        <Text fontSize="sm" color="brand.secondary">
+          {row.location || 'â€”'}
         </Text>
       ),
       width: '180px',
@@ -1445,7 +1445,7 @@ const GameList: React.FC = () => {
       accessor: (row) => (
         <Stack gap={0}>
           <Text fontWeight="600">{row.preferredName ?? row.name}</Text>
-          <Text fontSize="xs" color="text.secondary">
+          <Text fontSize="xs" color="brand.secondary">
             {isPlaceholderPlayer(row) ? 'Roster placeholder' : formatGradeLabel(row)}
           </Text>
         </Stack>
@@ -1454,8 +1454,8 @@ const GameList: React.FC = () => {
     {
       header: 'Position',
       accessor: (row) => (
-        <Text fontSize="sm" color="text.secondary">
-          {row.positions?.join(', ') ?? row.position ?? '—'}
+        <Text fontSize="sm" color="brand.secondary">
+          {row.positions?.join(', ') ?? row.position ?? 'â€”'}
         </Text>
       ),
       width: '160px',
@@ -1463,8 +1463,8 @@ const GameList: React.FC = () => {
     {
       header: 'Ht / Wt',
       accessor: (row) => (
-        <Text fontSize="sm" color="text.secondary">
-          {row.height || row.weight ? [row.height, row.weight].filter(Boolean).join(' / ') : '—'}
+        <Text fontSize="sm" color="brand.secondary">
+          {row.height || row.weight ? [row.height, row.weight].filter(Boolean).join(' / ') : 'â€”'}
         </Text>
       ),
       width: '160px',
@@ -1473,7 +1473,7 @@ const GameList: React.FC = () => {
       header: 'Actions',
       accessor: (row) =>
         isPlaceholderPlayer(row) ? (
-          <Text fontSize="xs" color="text.secondary">
+          <Text fontSize="xs" color="brand.secondary">
             Locked
           </Text>
         ) : (
@@ -1500,7 +1500,7 @@ const GameList: React.FC = () => {
       return (
         <HStack gap={3}>
           <Spinner size="sm" color="brand.primary" />
-          <Text fontSize="sm" color="text.secondary">
+          <Text fontSize="sm" color="brand.secondary">
             Loading seasons...
           </Text>
         </HStack>
@@ -1510,7 +1510,7 @@ const GameList: React.FC = () => {
     if (!seasons.length) {
       return (
         <Stack gap={3}>
-          <Text color="text.secondary" fontSize="sm">
+          <Text color="brand.secondary" fontSize="sm">
             No seasons yet. Create your first season to start building the schedule.
           </Text>
           <Button size="sm" onClick={() => setSeasonFormOpen(true)}>
@@ -1523,7 +1523,7 @@ const GameList: React.FC = () => {
     return (
       <HStack gap={3} wrap="wrap">
         <Stack gap={1} maxW="220px">
-          <Text fontSize="sm" color="text.secondary" fontWeight="600">
+          <Text fontSize="sm" color="brand.primary" fontWeight="700">
             Season
           </Text>
           <chakra.select
@@ -1563,7 +1563,7 @@ const GameList: React.FC = () => {
       <Center minH="60vh">
         <Stack align="center" gap={3}>
           <Text fontWeight="600">Program setup required</Text>
-          <Text color="text.secondary">{teamError}</Text>
+          <Text color="brand.secondary">{teamError}</Text>
         </Stack>
       </Center>
     );
@@ -1606,7 +1606,7 @@ const GameList: React.FC = () => {
         <Stack gap={4}>
           <Stack direction={{ base: 'column', md: 'row' }} gap={4}>
             <Stack gap={1} flex="1">
-              <Text fontSize="sm" color="text.secondary" fontWeight="600">
+              <Text fontSize="sm" color="brand.primary" fontWeight="700">
                 Season Year
               </Text>
               <Input
@@ -1616,7 +1616,7 @@ const GameList: React.FC = () => {
               />
             </Stack>
             <Stack gap={1} flex="1">
-              <Text fontSize="sm" color="text.secondary" fontWeight="600">
+              <Text fontSize="sm" color="brand.primary" fontWeight="700">
                 Display Label
               </Text>
               <Input
@@ -1625,7 +1625,7 @@ const GameList: React.FC = () => {
               />
             </Stack>
             <Stack gap={1} flex="1">
-              <Text fontSize="sm" color="text.secondary" fontWeight="600">
+              <Text fontSize="sm" color="brand.primary" fontWeight="700">
                 Level
               </Text>
               <chakra.select
@@ -1649,7 +1649,7 @@ const GameList: React.FC = () => {
             </Stack>
           </Stack>
           <Stack gap={1} maxW={{ base: '100%', md: '250px' }}>
-            <Text fontSize="sm" color="text.secondary" fontWeight="600">
+            <Text fontSize="sm" color="brand.primary" fontWeight="700">
               Season Start
             </Text>
             <Input
@@ -1689,7 +1689,7 @@ const GameList: React.FC = () => {
           {gamesLoading ? (
             <HStack gap={3}>
               <Spinner size="sm" color="brand.primary" />
-              <Text fontSize="sm" color="text.secondary">
+              <Text fontSize="sm" color="brand.secondary">
                 Loading schedule...
               </Text>
             </HStack>
@@ -1707,7 +1707,7 @@ const GameList: React.FC = () => {
               emptyState={
                 <Stack gap={3} align="center">
                   <Text fontWeight="600">No games yet</Text>
-                  <Text color="text.secondary" fontSize="sm" textAlign="center">
+                  <Text color="brand.secondary" fontSize="sm" textAlign="center">
                     Add opponents to build your season schedule.
                   </Text>
                   <Button size="sm" bg="brand.primary" color="white" onClick={() => resetGameForm()}>
@@ -1735,7 +1735,7 @@ const GameList: React.FC = () => {
           <Stack direction={{ base: 'column', md: 'row' }} gap={4}>
             <Stack gap={2} flex="1">
               <HStack justify="space-between" align="center">
-                <Text fontSize="sm" color="text.secondary" fontWeight="600">
+                <Text fontSize="sm" color="brand.primary" fontWeight="700">
                   Opponent
                 </Text>
                 {selectedOpponent && (
@@ -1793,7 +1793,7 @@ const GameList: React.FC = () => {
                       )}
                       <Stack gap={0}>
                         {selectedOpponent.location && (
-                          <Text fontSize="xs" color="text.secondary">
+                          <Text fontSize="xs" color="brand.secondary">
                             {selectedOpponent.location}
                           </Text>
                         )}
@@ -1820,7 +1820,7 @@ const GameList: React.FC = () => {
                       </Stack>
                     </>
                   ) : (
-                    <Text fontSize="xs" color="text.secondary">
+                    <Text fontSize="xs" color="brand.secondary">
                       Select a saved opponent or enter a custom name.
                     </Text>
                   )}
@@ -1841,7 +1841,7 @@ const GameList: React.FC = () => {
               </HStack>
             </Stack>
             <Stack gap={1} maxW={{ base: '100%', md: '200px' }}>
-              <Text fontSize="sm" color="text.secondary" fontWeight="600">
+              <Text fontSize="sm" color="brand.primary" fontWeight="700">
                 Date
               </Text>
               <Input
@@ -1851,7 +1851,7 @@ const GameList: React.FC = () => {
               />
             </Stack>
             <Stack gap={1} maxW={{ base: '100%', md: '160px' }}>
-              <Text fontSize="sm" color="text.secondary" fontWeight="600">
+              <Text fontSize="sm" color="brand.primary" fontWeight="700">
                 Kickoff
               </Text>
               <Input
@@ -1861,7 +1861,7 @@ const GameList: React.FC = () => {
               />
             </Stack>
             <Stack gap={1} maxW={{ base: '100%', md: '180px' }}>
-              <Text fontSize="sm" color="text.secondary" fontWeight="600">
+              <Text fontSize="sm" color="brand.primary" fontWeight="700">
                 Site
               </Text>
               <chakra.select
@@ -1885,7 +1885,7 @@ const GameList: React.FC = () => {
 
           <Stack direction={{ base: 'column', md: 'row' }} gap={4}>
             <Stack gap={1} flex="1">
-              <Text fontSize="sm" color="text.secondary" fontWeight="600">
+              <Text fontSize="sm" color="brand.primary" fontWeight="700">
                 Location
               </Text>
               <Input
@@ -1895,7 +1895,7 @@ const GameList: React.FC = () => {
               />
             </Stack>
             <Stack gap={1} flex="1">
-              <Text fontSize="sm" color="text.secondary" fontWeight="600">
+              <Text fontSize="sm" color="brand.primary" fontWeight="700">
                 Internal Notes
               </Text>
               <chakra.textarea
@@ -1983,7 +1983,7 @@ const GameList: React.FC = () => {
           {opponentsLoading && !sortedOpponents.length ? (
             <HStack gap={3}>
               <Spinner size="sm" color="brand.primary" />
-              <Text fontSize="sm" color="text.secondary">
+              <Text fontSize="sm" color="brand.secondary">
                 Loading opponents...
               </Text>
             </HStack>
@@ -1995,7 +1995,7 @@ const GameList: React.FC = () => {
               emptyState={
                 <Stack gap={3} align="center">
                   <Text fontWeight="600">No opponents yet</Text>
-                  <Text fontSize="sm" color="text.secondary" textAlign="center">
+                  <Text fontSize="sm" color="brand.secondary" textAlign="center">
                     Save opponent colors and logos here to apply them to games and reports.
                   </Text>
                   <Button size="sm" bg="brand.primary" color="white" onClick={openCreateOpponent}>
@@ -2018,7 +2018,7 @@ const GameList: React.FC = () => {
             >
               <Stack direction={{ base: 'column', md: 'row' }} gap={4}>
                 <Stack gap={2} flex="1">
-                  <Text fontSize="sm" color="text.secondary" fontWeight="600">
+                  <Text fontSize="sm" color="brand.primary" fontWeight="700">
                     Program Details
                   </Text>
                   <Input
@@ -2028,7 +2028,7 @@ const GameList: React.FC = () => {
                   />
                   <HStack gap={2} flexWrap="wrap">
                     <Stack gap={1} flex="1">
-                      <Text fontSize="xs" color="text.secondary">
+                      <Text fontSize="xs" color="brand.secondary">
                         Mascot / Nickname
                       </Text>
                       <Input
@@ -2038,7 +2038,7 @@ const GameList: React.FC = () => {
                       />
                     </Stack>
                     <Stack gap={1} flex="1">
-                      <Text fontSize="xs" color="text.secondary">
+                      <Text fontSize="xs" color="brand.secondary">
                         Short Name
                       </Text>
                       <Input
@@ -2051,7 +2051,7 @@ const GameList: React.FC = () => {
                     </Stack>
                   </HStack>
                   <Stack gap={1}>
-                    <Text fontSize="xs" color="text.secondary">
+                    <Text fontSize="xs" color="brand.secondary">
                       Location
                     </Text>
                     <Input
@@ -2062,7 +2062,7 @@ const GameList: React.FC = () => {
                   </Stack>
                 </Stack>
                 <Stack gap={2} flex="1">
-                  <Text fontSize="sm" color="text.secondary" fontWeight="600">
+                  <Text fontSize="sm" color="brand.primary" fontWeight="700">
                     Logo
                   </Text>
                   <Box
@@ -2084,7 +2084,7 @@ const GameList: React.FC = () => {
                         objectFit="contain"
                       />
                     ) : (
-                      <Text fontSize="xs" color="text.secondary">
+                      <Text fontSize="xs" color="brand.secondary">
                         Upload a transparent PNG or JPG (max 2MB).
                       </Text>
                     )}
@@ -2125,7 +2125,7 @@ const GameList: React.FC = () => {
                   { label: 'Accent', field: 'accentColor' as const },
                 ].map((entry) => (
                   <Stack key={entry.field} gap={1} align="center">
-                    <Text fontSize="xs" color="text.secondary">
+                    <Text fontSize="xs" color="brand.secondary">
                       {entry.label}
                     </Text>
                     <chakra.input
@@ -2155,7 +2155,7 @@ const GameList: React.FC = () => {
                     <Text fontSize="sm" fontWeight="600">
                       Stored Opponent Roster
                     </Text>
-                    <Text fontSize="xs" color="text.secondary">
+                    <Text fontSize="xs" color="brand.secondary">
                       Attach once and reuse for every matchup.
                     </Text>
                   </Stack>
@@ -2193,7 +2193,7 @@ const GameList: React.FC = () => {
                   >
                     <Stack gap={1}>
                       <Text fontWeight="600">Paste roster from MaxPreps.com</Text>
-                      <Text fontSize="sm" color="text.secondary">
+                      <Text fontSize="sm" color="brand.secondary">
                         Copy the roster table (Ctrl+C) starting with the header row and paste it here.
                       </Text>
                     </Stack>
@@ -2221,7 +2221,7 @@ const GameList: React.FC = () => {
                             ? 'red.500'
                             : libraryImportMessage.tone === 'success'
                             ? 'brand.primary'
-                            : 'text.secondary'
+                            : 'brand.secondary'
                         }
                         whiteSpace="pre-wrap"
                       >
@@ -2274,7 +2274,7 @@ const GameList: React.FC = () => {
                   emptyState={
                     <Stack gap={3} align="center">
                       <Text fontWeight="600">No stored roster yet</Text>
-                      <Text fontSize="sm" color="text.secondary" textAlign="center">
+                      <Text fontSize="sm" color="brand.secondary" textAlign="center">
                         Keep an updated list here to prefill future games automatically.
                       </Text>
                     </Stack>
@@ -2293,7 +2293,7 @@ const GameList: React.FC = () => {
                   >
                     <Stack direction={{ base: 'column', md: 'row' }} gap={4}>
                       <Stack gap={1} flex="1">
-                        <Text fontSize="sm" color="text.secondary" fontWeight="600">
+                        <Text fontSize="sm" color="brand.primary" fontWeight="700">
                           Player name
                         </Text>
                         <Input
@@ -2305,7 +2305,7 @@ const GameList: React.FC = () => {
                         />
                       </Stack>
                       <Stack gap={1} maxW={{ base: '100%', md: '140px' }}>
-                        <Text fontSize="sm" color="text.secondary" fontWeight="600">
+                        <Text fontSize="sm" color="brand.primary" fontWeight="700">
                           Jersey #
                         </Text>
                         <Input
@@ -2317,7 +2317,7 @@ const GameList: React.FC = () => {
                         />
                       </Stack>
                       <Stack gap={1} flex="1">
-                        <Text fontSize="sm" color="text.secondary" fontWeight="600">
+                        <Text fontSize="sm" color="brand.primary" fontWeight="700">
                           Positions
                         </Text>
                         <Input
@@ -2332,7 +2332,7 @@ const GameList: React.FC = () => {
 
                     <Stack direction={{ base: 'column', md: 'row' }} gap={4}>
                       <Stack gap={1} maxW={{ base: '100%', md: '160px' }}>
-                        <Text fontSize="sm" color="text.secondary" fontWeight="600">
+                        <Text fontSize="sm" color="brand.primary" fontWeight="700">
                           Grade / Class
                         </Text>
                         <Input
@@ -2344,7 +2344,7 @@ const GameList: React.FC = () => {
                         />
                       </Stack>
                       <Stack gap={1} maxW={{ base: '100%', md: '160px' }}>
-                        <Text fontSize="sm" color="text.secondary" fontWeight="600">
+                        <Text fontSize="sm" color="brand.primary" fontWeight="700">
                           Height
                         </Text>
                         <Input
@@ -2356,7 +2356,7 @@ const GameList: React.FC = () => {
                         />
                       </Stack>
                       <Stack gap={1} maxW={{ base: '100%', md: '160px' }}>
-                        <Text fontSize="sm" color="text.secondary" fontWeight="600">
+                        <Text fontSize="sm" color="brand.primary" fontWeight="700">
                           Weight
                         </Text>
                         <Input
@@ -2382,7 +2382,7 @@ const GameList: React.FC = () => {
               </Stack>
 
               <Stack gap={1}>
-                <Text fontSize="xs" color="text.secondary">
+                <Text fontSize="xs" color="brand.secondary">
                   Notes
                 </Text>
                 <chakra.textarea
