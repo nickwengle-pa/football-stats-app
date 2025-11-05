@@ -165,10 +165,12 @@ export const AppShell: React.FC<AppShellProps> = ({ children, branding, teamName
             </Stack>
 
             <Stack direction="column" gap={0.5} textAlign="right" display={{ base: 'none', md: 'flex' }}>
-              <Text fontSize="sm" color="text.secondary">
+              <Text fontSize="sm" color="brand.secondary">
                 Logged in as
               </Text>
-              <Text fontWeight="600">Coach Portal</Text>
+              <Text fontWeight="700" color="brand.primary">
+                Coach Portal
+              </Text>
             </Stack>
           </Flex>
 
