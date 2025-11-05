@@ -7,7 +7,7 @@ interface Score {
   opp: number;
 }
 
-const clonePlayers = (players: Player[]): Player[] =>
+const clonePlayers = (players: Player[] = []): Player[] =>
   players.map((player) => ({
     ...player,
     stats: { ...player.stats },
@@ -65,7 +65,11 @@ const getScoreDelta = (play: Play): Score => {
 
 const applyPlayToStats = (playerStats: Record<string, StatBucket>, play: Play) => {
   const lowerType = play.type.toLowerCase();
-  const stats = getOrInitPlayerStats(playerStats, play.playerId);
+  const playerKey = play.playerId ?? play.primaryPlayerId;
+  if (!playerKey) {
+    return;
+  }
+  const stats = getOrInitPlayerStats(playerStats, playerKey);
 
   if (lowerType.includes('run')) {
     stats.rushingYards = (stats.rushingYards || 0) + play.yards;
