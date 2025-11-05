@@ -92,7 +92,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children, branding, teamName
             <Text fontSize="lg" fontWeight="700" color="brand.primary">
               {programLabel}
             </Text>
-            <Text fontSize="sm" color="text.secondary">
+            <Text fontSize="sm" color="brand.secondary">
               Season Command Center
             </Text>
             <Flex mt={3} gap={2}>
@@ -134,8 +134,10 @@ export const AppShell: React.FC<AppShellProps> = ({ children, branding, teamName
                 />
               )}
               <Stack gap={1}>
-                <Text fontWeight="600">{programLabel}</Text>
-                <Text fontSize="sm" color="text.secondary">
+                <Text fontWeight="700" color="brand.primary">
+                  {programLabel}
+                </Text>
+                <Text fontSize="sm" color="brand.secondary">
                   Manage schedule, roster, and in-game stats
                 </Text>
               </Stack>

@@ -34,9 +34,11 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
       <Stack direction="row" align="center" gap={3}>
         {media && <Box>{media}</Box>}
         <Stack gap={1}>
-          <Heading size="lg">{title}</Heading>
+          <Heading size="lg" color="brand.primary" fontWeight="700">
+            {title}
+          </Heading>
           {subtitle && (
-            <Text color="text.secondary" fontSize="md">
+            <Text color="brand.secondary" fontSize="md" fontWeight="500">
               {subtitle}
             </Text>
           )}
