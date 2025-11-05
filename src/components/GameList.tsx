@@ -2275,7 +2275,7 @@ const GameList: React.FC = () => {
                     <Stack gap={3} align="center">
                       <Text fontWeight="600">No stored roster yet</Text>
                       <Text fontSize="sm" color="text.secondary" textAlign="center">
-                        Keep an updated list here to prefill every game automatically.
+                        Keep an updated list here to prefill future games automatically.
                       </Text>
                     </Stack>
                   }
