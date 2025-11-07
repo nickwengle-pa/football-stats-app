@@ -1,4 +1,5 @@
-import { Game, Play, Player } from '../models';
+import { Game, Play, Player, PlayType } from '../models';
+import { getMyTeamRoster, setGameRoster } from '../utils/gameUtils';
 
 type StatBucket = { [key: string]: number };
 
@@ -23,99 +24,189 @@ const getOrInitPlayerStats = (
   return playerStats[playerId];
 };
 
+/**
+ * Calculate score change from a play using proper enum matching.
+ * No more fragile string matching!
+ */
 const getScoreDelta = (play: Play): Score => {
-  const lowerType = play.type.toLowerCase();
-  let homeDelta = 0;
-  let oppDelta = 0;
+  const delta: Score = { home: 0, opp: 0 };
 
-  const isTouchdown = lowerType.includes('td') && (lowerType.includes('run') || lowerType.includes('pass'));
-  const isFieldGoal = lowerType.includes('field goal');
-  const isPat = lowerType.includes('pat');
-  const isTwoPoint = lowerType.includes('two point conversion');
-  const isSafety = lowerType.includes('safety');
-  const isTurnover = lowerType.includes('turnover');
-  const isMissed = lowerType.includes('miss') || lowerType.includes('fail');
+  switch (play.type) {
+    case PlayType.RUSH_TD:
+    case PlayType.PASS_TD:
+      delta.home = 6;
+      break;
 
-  if (isTouchdown) {
-    homeDelta += 6;
+    case PlayType.FIELD_GOAL_MADE:
+      delta.home = 3;
+      break;
+
+    case PlayType.EXTRA_POINT_KICK_MADE:
+      delta.home = 1;
+      break;
+
+    case PlayType.TWO_POINT_CONVERSION_MADE:
+      delta.home = 2;
+      break;
+
+    case PlayType.SAFETY:
+      delta.home = 2;
+      break;
+
+    // Handle legacy string-based play types during migration
+    default:
+      if (typeof play.type === 'string') {
+        const lowerType = play.type.toLowerCase();
+        
+        const isTouchdown = lowerType.includes('td') && 
+                          (lowerType.includes('run') || lowerType.includes('pass'));
+        const isFieldGoal = lowerType.includes('field goal') && !lowerType.includes('miss');
+        const isPat = lowerType.includes('pat') && !lowerType.includes('miss');
+        const isTwoPoint = lowerType.includes('two point') && !lowerType.includes('fail');
+        const isSafety = lowerType.includes('safety');
+
+        if (isTouchdown) delta.home = 6;
+        if (isFieldGoal) delta.home = 3;
+        if (isPat) delta.home = 1;
+        if (isTwoPoint) delta.home = 2;
+        if (isSafety) delta.home = 2;
+      }
+      break;
   }
 
-  if (isFieldGoal && !isMissed) {
-    homeDelta += 3;
-  }
-
-  if (isPat && !isMissed) {
-    homeDelta += 1;
-  }
-
-  if (isTwoPoint && !isMissed) {
-    homeDelta += 2;
-  }
-
-  if (isSafety) {
-    homeDelta += 2;
-  }
-
-  if (isTurnover) {
-    oppDelta += Math.max(0, play.yards);
-  }
-
-  return { home: homeDelta, opp: oppDelta };
+  return delta;
 };
 
+/**
+ * Apply play stats to player using proper enum matching.
+ * More reliable than string matching.
+ */
 const applyPlayToStats = (playerStats: Record<string, StatBucket>, play: Play) => {
-  const lowerType = play.type.toLowerCase();
   const playerKey = play.playerId ?? play.primaryPlayerId;
   if (!playerKey) {
     return;
   }
   const stats = getOrInitPlayerStats(playerStats, playerKey);
 
-  if (lowerType.includes('run')) {
-    stats.rushingYards = (stats.rushingYards || 0) + play.yards;
-    stats.rushingAttempts = (stats.rushingAttempts || 0) + 1;
-  }
+  switch (play.type) {
+    // Rushing plays
+    case PlayType.RUSH:
+    case PlayType.RUSH_TD:
+      stats.rushingYards = (stats.rushingYards || 0) + play.yards;
+      stats.rushingAttempts = (stats.rushingAttempts || 0) + 1;
+      if (play.type === PlayType.RUSH_TD) {
+        stats.rushingTouchdowns = (stats.rushingTouchdowns || 0) + 1;
+      }
+      break;
 
-  if (lowerType.includes('pass')) {
-    stats.passingYards = (stats.passingYards || 0) + play.yards;
-    stats.passingAttempts = (stats.passingAttempts || 0) + 1;
-    if (play.yards > 0) {
+    // Passing plays
+    case PlayType.PASS_COMPLETE:
+    case PlayType.PASS_TD:
+      stats.passingYards = (stats.passingYards || 0) + play.yards;
+      stats.passingAttempts = (stats.passingAttempts || 0) + 1;
       stats.completions = (stats.completions || 0) + 1;
-    }
-  }
+      if (play.type === PlayType.PASS_TD) {
+        stats.passingTouchdowns = (stats.passingTouchdowns || 0) + 1;
+      }
+      break;
 
-  if (lowerType.includes('tackle')) {
-    stats.tackles = (stats.tackles || 0) + 1;
-  }
+    case PlayType.PASS_INCOMPLETE:
+      stats.passingAttempts = (stats.passingAttempts || 0) + 1;
+      break;
 
-  if (lowerType.includes('turnover')) {
-    stats.turnovers = (stats.turnovers || 0) + 1;
-  }
+    // Receiving
+    case PlayType.RECEPTION:
+      stats.receptions = (stats.receptions || 0) + 1;
+      stats.receivingYards = (stats.receivingYards || 0) + play.yards;
+      break;
 
-  if (lowerType.includes('field goal')) {
-    stats.fieldGoalAttempts = (stats.fieldGoalAttempts || 0) + 1;
-    if (!lowerType.includes('miss')) {
+    // Defensive plays
+    case PlayType.TACKLE:
+    case PlayType.TACKLE_FOR_LOSS:
+      stats.tackles = (stats.tackles || 0) + 1;
+      if (play.type === PlayType.TACKLE_FOR_LOSS) {
+        stats.tacklesForLoss = (stats.tacklesForLoss || 0) + 1;
+      }
+      break;
+
+    case PlayType.SACK:
+      stats.sacks = (stats.sacks || 0) + 1;
+      stats.tackles = (stats.tackles || 0) + 1;
+      break;
+
+    case PlayType.INTERCEPTION:
+      stats.interceptions = (stats.interceptions || 0) + 1;
+      stats.interceptionYards = (stats.interceptionYards || 0) + play.yards;
+      break;
+
+    case PlayType.FUMBLE_RECOVERY:
+      stats.fumblesRecovered = (stats.fumblesRecovered || 0) + 1;
+      break;
+
+    case PlayType.PASS_DEFENSED:
+      stats.passesDefensed = (stats.passesDefensed || 0) + 1;
+      break;
+
+    // Kicking
+    case PlayType.FIELD_GOAL_MADE:
+      stats.fieldGoalAttempts = (stats.fieldGoalAttempts || 0) + 1;
       stats.fieldGoalsMade = (stats.fieldGoalsMade || 0) + 1;
       stats.fieldGoalYards = (stats.fieldGoalYards || 0) + play.yards;
-    }
-  }
+      break;
 
-  if (lowerType.includes('pat')) {
-    stats.extraPointAttempts = (stats.extraPointAttempts || 0) + 1;
-    if (!lowerType.includes('miss')) {
+    case PlayType.FIELD_GOAL_MISSED:
+      stats.fieldGoalAttempts = (stats.fieldGoalAttempts || 0) + 1;
+      break;
+
+    case PlayType.EXTRA_POINT_KICK_MADE:
+      stats.extraPointAttempts = (stats.extraPointAttempts || 0) + 1;
       stats.extraPointsMade = (stats.extraPointsMade || 0) + 1;
-    }
-  }
+      break;
 
-  if (lowerType.includes('two point conversion')) {
-    stats.twoPointAttempts = (stats.twoPointAttempts || 0) + 1;
-    if (!lowerType.includes('fail')) {
+    case PlayType.EXTRA_POINT_KICK_MISSED:
+      stats.extraPointAttempts = (stats.extraPointAttempts || 0) + 1;
+      break;
+
+    case PlayType.TWO_POINT_CONVERSION_MADE:
+      stats.twoPointAttempts = (stats.twoPointAttempts || 0) + 1;
       stats.twoPointConversions = (stats.twoPointConversions || 0) + 1;
-    }
-  }
+      break;
 
-  if (lowerType.includes('safety')) {
-    stats.safeties = (stats.safeties || 0) + 1;
+    case PlayType.TWO_POINT_CONVERSION_FAILED:
+      stats.twoPointAttempts = (stats.twoPointAttempts || 0) + 1;
+      break;
+
+    // Legacy string-based handling
+    default:
+      if (typeof play.type === 'string') {
+        const lowerType = play.type.toLowerCase();
+
+        if (lowerType.includes('run')) {
+          stats.rushingYards = (stats.rushingYards || 0) + play.yards;
+          stats.rushingAttempts = (stats.rushingAttempts || 0) + 1;
+        }
+
+        if (lowerType.includes('pass')) {
+          stats.passingYards = (stats.passingYards || 0) + play.yards;
+          stats.passingAttempts = (stats.passingAttempts || 0) + 1;
+          if (play.yards > 0) {
+            stats.completions = (stats.completions || 0) + 1;
+          }
+        }
+
+        if (lowerType.includes('tackle')) {
+          stats.tackles = (stats.tackles || 0) + 1;
+        }
+
+        if (lowerType.includes('field goal')) {
+          stats.fieldGoalAttempts = (stats.fieldGoalAttempts || 0) + 1;
+          if (!lowerType.includes('miss')) {
+            stats.fieldGoalsMade = (stats.fieldGoalsMade || 0) + 1;
+            stats.fieldGoalYards = (stats.fieldGoalYards || 0) + play.yards;
+          }
+        }
+      }
+      break;
   }
 };
 
@@ -136,7 +227,7 @@ export const buildScoreTimeline = (plays: Play[]): Score[] => {
 };
 
 export const recalculateStats = (game: Game): Game => {
-  const basePlayers = clonePlayers(game.homePlayers);
+  const basePlayers = clonePlayers(getMyTeamRoster(game));
   const playerStats: Record<string, StatBucket> = {};
   let homeScore = 0;
   let oppScore = 0;
@@ -157,12 +248,16 @@ export const recalculateStats = (game: Game): Game => {
     stats: { ...playerStats[player.id] },
   }));
 
-  return {
-    ...game,
-    homePlayers: recalculatedPlayers,
-    homeScore,
-    oppScore,
-  };
+  return setGameRoster(
+    {
+      ...game,
+      homeScore,
+      oppScore,
+    },
+    recalculatedPlayers,
+    game.myTeamId,
+    game.seasonId
+  );
 };
 
 export const addPlayAndRecalc = (game: Game, play: Play): Game => {

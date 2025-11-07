@@ -170,18 +170,46 @@ const formatDateForInput = (timestamp?: Timestamp): string => {
 
 const formatTimeForInput = (kickoff?: string, timestamp?: Timestamp): string => {
   if (kickoff) return kickoff;
-  if (!timestamp) return '19:00';
+  if (!timestamp) return '7:00 PM';
   const date = timestamp.toDate();
-  return date.toISOString().substring(11, 16);
+  let hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12 || 12;
+  const minuteStr = minutes < 10 ? `0${minutes}` : minutes;
+  return `${hours}:${minuteStr} ${ampm}`;
 };
 
 const combineDateTimeToTimestamp = (date: string, time: string): Timestamp => {
   if (!date) {
     return Timestamp.now();
   }
-  const [hours, minutes] = time ? time.split(':').map(Number) : [19, 0];
+  
+  // Parse 12-hour format time (e.g., "7:00 PM" or "11:30 AM")
+  let hours = 19;
+  let minutes = 0;
+  
+  if (time) {
+    const timeUpper = time.toUpperCase().trim();
+    const isPM = timeUpper.includes('PM');
+    const isAM = timeUpper.includes('AM');
+    
+    const timeOnly = timeUpper.replace(/\s*(AM|PM)\s*/g, '').trim();
+    const [hourStr, minStr] = timeOnly.split(':');
+    
+    hours = parseInt(hourStr, 10) || 0;
+    minutes = parseInt(minStr, 10) || 0;
+    
+    // Convert to 24-hour format
+    if (isPM && hours !== 12) {
+      hours += 12;
+    } else if (isAM && hours === 12) {
+      hours = 0;
+    }
+  }
+  
   const dateObj = new Date(date);
-  dateObj.setHours(hours ?? 19, minutes ?? 0, 0, 0);
+  dateObj.setHours(hours, minutes, 0, 0);
   return Timestamp.fromDate(dateObj);
 };
 
@@ -212,6 +240,7 @@ const formatGameTime = (kick?: string, timestamp?: Timestamp) => {
   return timestamp.toDate().toLocaleTimeString(undefined, {
     hour: 'numeric',
     minute: '2-digit',
+    hour12: true,
   });
 };
 
@@ -1855,7 +1884,8 @@ const GameList: React.FC = () => {
                 Kickoff
               </Text>
               <Input
-                type="time"
+                type="text"
+                placeholder="7:00 PM"
                 value={gameForm.time}
                 onChange={(event) => handleGameFormChange('time', event.target.value)}
               />

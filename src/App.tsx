@@ -7,6 +7,7 @@ import ReportsScreen from './components/ReportsScreen';
 import TeamManager from './components/TeamManager';
 import { AppShell } from './components/layout/AppShell';
 import { ProgramProvider, useProgram } from './context/ProgramContext';
+import { ErrorBoundary, SectionErrorBoundary } from './components/ErrorBoundary';
 
 const AppRoutes: React.FC = () => {
   const {
@@ -44,10 +45,26 @@ const AppRoutes: React.FC = () => {
     <AppShell branding={branding} teamName={programName}>
       <Box className="App">
         <Routes>
-          <Route path="/" element={<GameList />} />
-          <Route path="/team" element={<TeamManager />} />
-          <Route path="/scoring/:gameId" element={<ScoringScreen />} />
-          <Route path="/reports/:gameId" element={<ReportsScreen />} />
+          <Route path="/" element={
+            <SectionErrorBoundary>
+              <GameList />
+            </SectionErrorBoundary>
+          } />
+          <Route path="/team" element={
+            <SectionErrorBoundary>
+              <TeamManager />
+            </SectionErrorBoundary>
+          } />
+          <Route path="/scoring/:gameId" element={
+            <SectionErrorBoundary>
+              <ScoringScreen />
+            </SectionErrorBoundary>
+          } />
+          <Route path="/reports/:gameId" element={
+            <SectionErrorBoundary>
+              <ReportsScreen />
+            </SectionErrorBoundary>
+          } />
         </Routes>
       </Box>
     </AppShell>
@@ -56,11 +73,13 @@ const AppRoutes: React.FC = () => {
 
 function App() {
   return (
-    <ProgramProvider>
-      <Router>
-        <AppRoutes />
-      </Router>
-    </ProgramProvider>
+    <ErrorBoundary>
+      <ProgramProvider>
+        <Router>
+          <AppRoutes />
+        </Router>
+      </ProgramProvider>
+    </ErrorBoundary>
   );
 }
 

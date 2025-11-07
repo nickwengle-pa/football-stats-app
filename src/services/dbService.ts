@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore';
 import { db, ensureAuth } from '../firebase';
 import { Game, Player, Season, Team, Coach, OpponentTeam } from '../models';
+import { getMyTeamRoster } from '../utils/gameUtils';
 
 const gamesCollectionRoot = () => collection(db, 'games');
 const legacyGameDoc = (gameId: string) => doc(db, 'games', gameId);
@@ -256,15 +257,19 @@ const prepareGameWrite = (
   teamId: string,
   seasonId: string
 ): Omit<Game, 'id'> => {
+  const roster = getMyTeamRoster(game);
+  
   const base: Game = {
     ...game,
     seasonId,
     myTeamId: teamId,
-    myTeamSnapshot: game.myTeamSnapshot ?? {
+    myTeamSnapshot: {
       teamId,
       seasonId,
-      roster: game.homePlayers ?? [],
+      roster,
     },
+    // Keep homePlayers for backward compatibility
+    homePlayers: roster,
   };
   const { id: _ignored, ...payload } = base;
   return payload;

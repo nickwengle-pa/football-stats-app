@@ -3,16 +3,23 @@ import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 import { getAuth, signInAnonymously, UserCredential } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
-// Replace with your Firebase config
+// Firebase config from environment variables
 const firebaseConfig = {
-  apiKey: "AIzaSyCjxmva_mvlmNhpoHIsl3wPN5dSa4QYHTo",
-  authDomain: "pl-stats-52e57.firebaseapp.com",
-  projectId: "pl-stats-52e57",
-  storageBucket: "pl-stats-52e57.appspot.com",
-  messagingSenderId: "976569830835",
-  appId: "1:976569830835:web:aabdb14074e79d6e8b8fc6",
-  measurementId: "G-E37BQ2P48E"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID,
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
 };
+
+// Validate required config
+if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
+  throw new Error(
+    'Firebase configuration is missing. Please check your .env file and ensure all REACT_APP_FIREBASE_* variables are set.'
+  );
+}
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);

@@ -14,7 +14,7 @@ import {
   chakra,
   Image,
 } from '@chakra-ui/react';
-import { Game, Play } from '../models';
+import { Game, Play, PlayType } from '../models';
 import { subscribeToGame, saveGame } from '../services/dbService';
 import {
   addPlayAndRecalc,
@@ -23,22 +23,21 @@ import {
 } from '../services/statsService';
 import { PageHeader, SectionCard } from './ui';
 import { useProgram } from '../context/ProgramContext';
+import { getOpponentName } from '../utils/gameUtils';
 
 type FeedbackState = {
   status: 'success' | 'error';
   message: string;
 };
 
-const resolveOpponent = (game: Game) =>
-  game.opponentName ?? game.opponent ?? 'TBD Opponent';
-
 const formatTime = (timestamp: Timestamp) =>
   timestamp.toDate().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
+// Updated to use PlayType enum
 const quickActions = [
-  { label: 'Run +5', type: 'Run', yards: 5, color: 'brand.primary' },
-  { label: 'Pass +10', type: 'Pass Complete', yards: 10, color: 'brand.secondary' },
-  { label: 'Tackle -2', type: 'Tackle', yards: -2, color: 'red.500' },
+  { label: 'Run +5', type: PlayType.RUSH, yards: 5, color: 'brand.primary' },
+  { label: 'Pass +10', type: PlayType.PASS_COMPLETE, yards: 10, color: 'brand.secondary' },
+  { label: 'Tackle -2', type: PlayType.TACKLE, yards: -2, color: 'red.500' },
 ];
 
 const ScoringScreen: React.FC = () => {
@@ -98,9 +97,9 @@ const ScoringScreen: React.FC = () => {
     }
   }, [game?.plays.length]);
 
-  const opponentName = useMemo(() => (game ? resolveOpponent(game) : 'Opponent'), [game]);
+  const opponentName = useMemo(() => (game ? getOpponentName(game) : 'Opponent'), [game]);
 
-  const handleAddPlay = async (type: string, yards: number) => {
+  const handleAddPlay = async (type: PlayType, yards: number) => {
     if (!game || !teamId || !activeSeasonId) return;
     const play: Play = {
       id: uuidv4(),

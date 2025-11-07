@@ -153,25 +153,51 @@ export interface PlayParticipant {
   credit?: number;
 }
 
-export type PlayType =
-  | 'run'
-  | 'pass'
-  | 'reception'
-  | 'tackle'
-  | 'sack'
-  | 'fieldGoal'
-  | 'extraPoint'
-  | 'twoPoint'
-  | 'turnover'
-  | 'kickoff'
-  | 'punt'
-  | 'penalty'
-  | 'safety'
-  | 'other';
+// Strict play type enum - no more string matching!
+export enum PlayType {
+  // Offensive plays
+  RUSH = 'rush',
+  PASS_COMPLETE = 'pass_complete',
+  PASS_INCOMPLETE = 'pass_incomplete',
+  RECEPTION = 'reception',
+  
+  // Scoring plays
+  RUSH_TD = 'rush_td',
+  PASS_TD = 'pass_td',
+  FIELD_GOAL_MADE = 'field_goal_made',
+  FIELD_GOAL_MISSED = 'field_goal_missed',
+  EXTRA_POINT_KICK_MADE = 'extra_point_kick_made',
+  EXTRA_POINT_KICK_MISSED = 'extra_point_kick_missed',
+  TWO_POINT_CONVERSION_MADE = 'two_point_conversion_made',
+  TWO_POINT_CONVERSION_FAILED = 'two_point_conversion_failed',
+  SAFETY = 'safety',
+  
+  // Defensive plays
+  TACKLE = 'tackle',
+  TACKLE_FOR_LOSS = 'tackle_for_loss',
+  SACK = 'sack',
+  INTERCEPTION = 'interception',
+  FUMBLE_RECOVERY = 'fumble_recovery',
+  PASS_DEFENSED = 'pass_defensed',
+  
+  // Special teams
+  KICKOFF = 'kickoff',
+  KICKOFF_RETURN = 'kickoff_return',
+  PUNT = 'punt',
+  PUNT_RETURN = 'punt_return',
+  
+  // Penalties and other
+  PENALTY = 'penalty',
+  TIMEOUT = 'timeout',
+  OTHER = 'other'
+}
+
+// Legacy type for backward compatibility during migration
+export type PlayTypeLegacy = PlayType | string;
 
 export interface Play {
   id: UUID;
-  type: PlayType | string;
+  type: PlayType;
   yards: number;
   playerId?: UUID;
   primaryPlayerId?: UUID;
@@ -201,14 +227,29 @@ export interface Game {
   isPlayoff?: boolean;
   playoffRound?: string;
   rules?: GameRules;
+  
+  // Preferred: Use myTeamSnapshot for roster data
   myTeamSnapshot?: GameRosterSnapshot;
+  
+  // Preferred: Use opponentSnapshot for opponent roster
   opponentSnapshot?: GameRosterSnapshot;
+  
   plays: Play[];
   homeScore: number;
   oppScore: number;
-  homePlayers?: Player[]; // Legacy support for existing UI
+  
+  // DEPRECATED: Use myTeamSnapshot.roster instead
+  // Kept for backward compatibility during migration
+  /** @deprecated Use myTeamSnapshot.roster instead */
+  homePlayers?: Player[];
+  
+  // DEPRECATED: Use opponentName instead
+  /** @deprecated Use opponentName instead for consistency */
   opponent?: string;
+  
+  // Preferred: Single source of truth for opponent name
   opponentName?: string;
+  
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
   notes?: string;

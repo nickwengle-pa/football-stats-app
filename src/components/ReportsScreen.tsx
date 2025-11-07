@@ -14,6 +14,7 @@ import { subscribeToGame } from '../services/dbService';
 import { Game } from '../models';
 import { PageHeader, SectionCard, DataTable, DataTableColumn } from './ui';
 import { useProgram } from '../context/ProgramContext';
+import { getOpponentName } from '../utils/gameUtils';
 
 type PlayRow = {
   description: string;
@@ -76,7 +77,7 @@ const ReportsScreen: React.FC = () => {
   }, [teamId, activeSeasonId, gameId]);
 
   const opponentName = useMemo(
-    () => (game ? game.opponentName ?? game.opponent ?? 'Opponent' : 'Opponent'),
+    () => (game ? getOpponentName(game) : 'Opponent'),
     [game]
   );
 
