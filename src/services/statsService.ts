@@ -30,27 +30,31 @@ const getOrInitPlayerStats = (
  */
 const getScoreDelta = (play: Play): Score => {
   const delta: Score = { home: 0, opp: 0 };
+  const side: keyof Score = play.teamSide === 'away' ? 'opp' : 'home';
+  const addScore = (points: number) => {
+    delta[side] += points;
+  };
 
   switch (play.type) {
     case PlayType.RUSH_TD:
     case PlayType.PASS_TD:
-      delta.home = 6;
+      addScore(6);
       break;
 
     case PlayType.FIELD_GOAL_MADE:
-      delta.home = 3;
+      addScore(3);
       break;
 
     case PlayType.EXTRA_POINT_KICK_MADE:
-      delta.home = 1;
+      addScore(1);
       break;
 
     case PlayType.TWO_POINT_CONVERSION_MADE:
-      delta.home = 2;
+      addScore(2);
       break;
 
     case PlayType.SAFETY:
-      delta.home = 2;
+      addScore(2);
       break;
 
     // Handle legacy string-based play types during migration
@@ -65,11 +69,11 @@ const getScoreDelta = (play: Play): Score => {
         const isTwoPoint = lowerType.includes('two point') && !lowerType.includes('fail');
         const isSafety = lowerType.includes('safety');
 
-        if (isTouchdown) delta.home = 6;
-        if (isFieldGoal) delta.home = 3;
-        if (isPat) delta.home = 1;
-        if (isTwoPoint) delta.home = 2;
-        if (isSafety) delta.home = 2;
+        if (isTouchdown) addScore(6);
+        if (isFieldGoal) addScore(3);
+        if (isPat) addScore(1);
+        if (isTwoPoint) addScore(2);
+        if (isSafety) addScore(2);
       }
       break;
   }
@@ -82,6 +86,10 @@ const getScoreDelta = (play: Play): Score => {
  * More reliable than string matching.
  */
 const applyPlayToStats = (playerStats: Record<string, StatBucket>, play: Play) => {
+  // Only track stats for the home team roster; opponent plays are scored but not applied to these players
+  if (play.teamSide === 'away') {
+    return;
+  }
   const playerKey = play.playerId ?? play.primaryPlayerId;
   if (!playerKey) {
     return;

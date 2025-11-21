@@ -50,6 +50,21 @@ type PlayInputState = {
 const formatTime = (timestamp: Timestamp) =>
   timestamp.toDate().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const formatQuarterLabel = (quarter: number) => {
+  if (quarter <= 4) return `Q${quarter}`;
+  const otNumber = quarter - 4;
+  return `OT${otNumber}`;
+};
+
+const formatBallDisplay = (spot: number, homeLabel: string, awayLabel: string) => {
+  const yard = clamp(Math.round(spot), 0, 100);
+  if (yard === 50) return '50';
+  if (yard < 50) return `${homeLabel} ${yard}`;
+  return `${awayLabel} ${100 - yard}`;
+};
+
 // Updated to use PlayType enum - simplified for manual input
 const quickActions = [
   // Offensive - no preset yards
@@ -126,7 +141,7 @@ const ScoringScreen: React.FC = () => {
 
   // Player selection state
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
-  const [pendingPlay, setPendingPlay] = useState<{ type: PlayType; yards: number } | null>(null);
+  const [pendingPlay, setPendingPlay] = useState<{ type: PlayType; yards: number; side: 'home' | 'away' } | null>(null);
   const [jerseySearch, setJerseySearch] = useState<string>('');
   const { open: isOpen, onOpen, onClose } = useDisclosure();
   const [lastRusher, setLastRusher] = useState<Player | null>(null); // Remember last rusher
@@ -220,10 +235,14 @@ const ScoringScreen: React.FC = () => {
     setTimeRemaining(12 * 60);
     setIsClockRunning(false);
   };
-  const nextQuarter = () => {
-    setCurrentQuarter(prev => Math.min(prev + 1, 4));
+  const changeQuarter = (delta: number) => {
+    setCurrentQuarter((prev) => Math.max(1, prev + delta));
     resetClock();
   };
+
+  const setManualDown = (value: number) => setDown(clamp(Math.round(value) || 1, 1, 4));
+  const setManualDistance = (value: number) => setYardsToGo(clamp(Math.round(value) || 1, 1, 99));
+  const setManualBallSpot = (value: number) => setFieldPosition(clamp(value || 0, 0, 100));
 
   useEffect(() => {
     if (!teamId || !activeSeasonId || !gameId || gameId === 'new') {
@@ -359,15 +378,41 @@ const ScoringScreen: React.FC = () => {
       ctx.lineTo(midX, height);
       ctx.stroke();
 
+      const toX = (yard: number) => {
+        const clamped = clamp(yard, 0, 100);
+        return endZoneWidth + (clamped / 100) * fieldWidth;
+      };
+
+      // Draw line of scrimmage and line to gain
+      const driveDirection =
+        possession === 'home'
+          ? (direction === 'left-to-right' ? 1 : -1)
+          : (direction === 'left-to-right' ? -1 : 1);
+      const lineToGainYards = clamp(fieldPosition + driveDirection * yardsToGo, 0, 100);
+
+      const losX = toX(fieldPosition);
+      const l2gX = toX(lineToGainYards);
+
+      // LOS marker
+      ctx.strokeStyle = '#f5f6f7';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(losX, 0);
+      ctx.lineTo(losX, height);
+      ctx.stroke();
+
+      // Line to gain marker (dashed)
+      ctx.setLineDash([8, 6]);
+      ctx.strokeStyle = '#ffd166';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(l2gX, 0);
+      ctx.lineTo(l2gX, height);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
       // Draw current ball position (accounting for end zones)
-      let ballX;
-      if (fieldPosition <= 0) {
-        ballX = endZoneWidth / 2; // In home end zone
-      } else if (fieldPosition >= 100) {
-        ballX = width - endZoneWidth / 2; // In opponent end zone
-      } else {
-        ballX = endZoneWidth + ((fieldPosition - 10) / 80) * fieldWidth;
-      }
+      const ballX = toX(fieldPosition);
       
       const oppColor = opponent?.colors?.primaryColor || '#8B0000';
       const ballColor = possession === 'home' ? branding.primaryColor : oppColor;
@@ -537,6 +582,7 @@ const ScoringScreen: React.FC = () => {
       playerName = playInput.player?.name || 'Team';
     }
 
+    const side: 'home' | 'away' = possession;
     const play: Play = {
       id: uuidv4(),
       type: playInput.type,
@@ -548,20 +594,11 @@ const ScoringScreen: React.FC = () => {
       down,
       distance: yardsToGo.toString(),
       yardLine: playInput.startYard,
+      teamSide: side,
     };
 
     try {
       const nextGame = addPlayAndRecalc(game, play);
-      
-      // Apply NFHS scoring
-      if (points) {
-        if (possession === 'home') {
-          nextGame.homeScore = (nextGame.homeScore || 0) + points;
-        } else {
-          nextGame.oppScore = (nextGame.oppScore || 0) + points;
-        }
-      }
-      
       setHistory((prev) => [...prev, game]);
       setGame(nextGame);
       await saveGame(nextGame, { teamId, seasonId: activeSeasonId });
@@ -593,7 +630,12 @@ const ScoringScreen: React.FC = () => {
     }
   };
 
-  const handleAddPlay = async (type: PlayType, yards: number, playerId?: string) => {
+  const handleAddPlay = async (
+    type: PlayType,
+    yards: number,
+    playerId?: string,
+    side: 'home' | 'away' = possession
+  ) => {
     if (!game || !teamId || !activeSeasonId) return;
 
     // If no player selected, open picker for plays that need attribution
@@ -607,20 +649,22 @@ const ScoringScreen: React.FC = () => {
     ].includes(type);
 
     if (needsPlayer && !playerId && !selectedPlayer) {
-      setPendingPlay({ type, yards });
+      setPendingPlay({ type, yards, side });
       onOpen();
       return;
     }
 
     const finalPlayerId = playerId || selectedPlayer?.id || 'team-placeholder-player';
+    const sideLabel = side === 'home' ? (selectedPlayer?.name || 'Team') : opponentName || 'Opponent';
 
     const play: Play = {
       id: uuidv4(),
       type,
       yards,
       playerId: finalPlayerId,
-      description: `${selectedPlayer?.name || 'Team'} - ${type} for ${yards} yards`,
+      description: `${sideLabel} - ${type} for ${yards} yards`,
       timestamp: Timestamp.now(),
+      teamSide: side,
     };
 
     try {
@@ -628,7 +672,10 @@ const ScoringScreen: React.FC = () => {
       setHistory((prev) => [...prev, game]);
       setGame(nextGame);
       await saveGame(nextGame, { teamId, seasonId: activeSeasonId });
-      setFeedback({ status: 'success', message: `${type} recorded for ${selectedPlayer?.name || 'Team'}.` });
+      setFeedback({
+        status: 'success',
+        message: `${type} recorded for ${side === 'home' ? (selectedPlayer?.name || 'Team') : opponentName}.`,
+      });
       setSelectedPlayer(null); // Reset selection after play
     } catch (error) {
       console.error('Failed to add play', error);
@@ -639,7 +686,7 @@ const ScoringScreen: React.FC = () => {
   const handlePlayerSelect = (player: Player) => {
     setSelectedPlayer(player);
     if (pendingPlay) {
-      handleAddPlay(pendingPlay.type, pendingPlay.yards, player.id);
+      handleAddPlay(pendingPlay.type, pendingPlay.yards, player.id, pendingPlay.side);
       setPendingPlay(null);
       onClose();
       setJerseySearch('');
@@ -908,7 +955,7 @@ const ScoringScreen: React.FC = () => {
               {/* Center Section: Quarter & Clock */}
               <Stack flex={1} align="center" gap={2} px={4}>
                 <Text fontSize="md" fontWeight="700" color="yellow.400" textTransform="uppercase">
-                  Quarter {currentQuarter}
+                  {formatQuarterLabel(currentQuarter)}
                 </Text>
                 <Text fontSize="5xl" fontWeight="900" color="white" fontFamily="mono" lineHeight="1">
                   {formatClock(timeRemaining)}
@@ -931,15 +978,28 @@ const ScoringScreen: React.FC = () => {
                   >
                     Reset
                   </Button>
-                  <Button 
-                    size="sm" 
-                    variant="solid" 
-                    bg="gray.700" 
+                  <Button
+                    size="sm"
+                    variant="solid"
+                    bg="gray.700"
                     color="gray.300"
                     _hover={{ bg: 'gray.600' }}
-                    onClick={nextQuarter}
+                    onClick={() => changeQuarter(-1)}
+                    disabled={currentQuarter <= 1}
+                    title="Previous quarter or OT"
                   >
-                    Q{currentQuarter + 1}
+                    ‹
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="solid"
+                    bg="gray.700"
+                    color="gray.300"
+                    _hover={{ bg: 'gray.600' }}
+                    onClick={() => changeQuarter(1)}
+                    title="Next quarter or OT"
+                  >
+                    ›
                   </Button>
                 </Stack>
               </Stack>
@@ -1020,21 +1080,100 @@ const ScoringScreen: React.FC = () => {
               <Stack direction="row" justify="center" align="center" gap={8}>
                 <Stack align="center" gap={1}>
                   <Text fontSize="xs" color="gray.400" textTransform="uppercase">Down</Text>
-                  <Text fontSize="2xl" fontWeight="700" color="white" fontFamily="mono">
-                    {down}
-                  </Text>
+                  <HStack gap={2} align="center">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      borderColor="whiteAlpha.700"
+                      color="yellow.300"
+                      _hover={{ bg: 'whiteAlpha.200' }}
+                      onClick={() => setManualDown(down + 1)}
+                      aria-label="Increase down"
+                    >
+                      +
+                    </Button>
+                    <Text fontSize="2xl" fontWeight="700" color="white" fontFamily="mono" minW="36px" textAlign="center">
+                      {down}
+                    </Text>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      borderColor="whiteAlpha.700"
+                      color="yellow.300"
+                      _hover={{ bg: 'whiteAlpha.200' }}
+                      onClick={() => setManualDown(down - 1)}
+                      aria-label="Decrease down"
+                      disabled={down <= 1}
+                    >
+                      -
+                    </Button>
+                  </HStack>
                 </Stack>
                 <Stack align="center" gap={1}>
                   <Text fontSize="xs" color="gray.400" textTransform="uppercase">To Go</Text>
-                  <Text fontSize="2xl" fontWeight="700" color="white" fontFamily="mono">
-                    {yardsToGo}
-                  </Text>
+                  <HStack gap={2} align="center">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      borderColor="whiteAlpha.700"
+                      color="yellow.300"
+                      _hover={{ bg: 'whiteAlpha.200' }}
+                      onClick={() => setManualDistance(yardsToGo + 1)}
+                      aria-label="Increase distance"
+                    >
+                      +
+                    </Button>
+                    <Text fontSize="2xl" fontWeight="700" color="white" fontFamily="mono" minW="48px" textAlign="center">
+                      {yardsToGo}
+                    </Text>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      borderColor="whiteAlpha.700"
+                      color="yellow.300"
+                      _hover={{ bg: 'whiteAlpha.200' }}
+                      onClick={() => setManualDistance(yardsToGo - 1)}
+                      aria-label="Decrease distance"
+                      disabled={yardsToGo <= 1}
+                    >
+                      -
+                    </Button>
+                  </HStack>
                 </Stack>
                 <Stack align="center" gap={1}>
                   <Text fontSize="xs" color="gray.400" textTransform="uppercase">Ball On</Text>
-                  <Text fontSize="2xl" fontWeight="700" color="yellow.400" fontFamily="mono">
-                    {fieldPosition}
-                  </Text>
+                  <HStack gap={2} align="center">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      borderColor="whiteAlpha.700"
+                      color="yellow.300"
+                      _hover={{ bg: 'whiteAlpha.200' }}
+                      onClick={() => setManualBallSpot(fieldPosition + 1)}
+                      aria-label="Advance ball"
+                    >
+                      +
+                    </Button>
+                    <Text fontSize="2xl" fontWeight="700" color="yellow.400" fontFamily="mono" minW="72px" textAlign="center">
+                      {formatBallDisplay(
+                        fieldPosition,
+                        team?.shortName || teamName.substring(0, 2).toUpperCase(),
+                        opponent?.shortName || opponentName.substring(0, 2).toUpperCase()
+                      )}
+                    </Text>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      borderColor="whiteAlpha.700"
+                      color="yellow.300"
+                      _hover={{ bg: 'whiteAlpha.200' }}
+                      onClick={() => setManualBallSpot(fieldPosition - 1)}
+                      aria-label="Retreat ball"
+                      disabled={fieldPosition <= 0}
+                    >
+                      -
+                    </Button>
+                  </HStack>
                 </Stack>
                 <Stack align="center" gap={1}>
                   <Text fontSize="xs" color="gray.400" textTransform="uppercase">Plays</Text>
@@ -1063,7 +1202,7 @@ const ScoringScreen: React.FC = () => {
                 style={{ width: '100%', height: '100%', display: 'block' }}
               />
             </Box>
-            
+          
             {/* Possession Toggle */}
             <Stack direction="row" justify="center" mt={3} gap={2}>
               <Button
@@ -1152,6 +1291,21 @@ const ScoringScreen: React.FC = () => {
         <Text fontSize="xl" fontWeight="700" mb={4} color="white" textTransform="uppercase">
           Quick Actions
         </Text>
+        <HStack justify="space-between" align="center">
+          <Text fontSize="sm" color="gray.300">
+            Logging for: <Text as="span" fontWeight="700" color="white">{possession === 'home' ? teamName : opponentName}</Text>
+          </Text>
+          <Button
+            size="sm"
+            variant="outline"
+            borderColor="yellow.400"
+            color="yellow.300"
+            _hover={{ bg: 'rgba(250, 240, 137, 0.1)' }}
+            onClick={() => setPossession(possession === 'home' ? 'away' : 'home')}
+          >
+            Switch to {possession === 'home' ? 'Opponent' : 'Home'}
+          </Button>
+        </HStack>
         <Stack gap={4}>
           {/* Clear Selection Button - Show when a play type is selected */}
           {selectedPlayType && (

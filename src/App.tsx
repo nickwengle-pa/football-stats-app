@@ -9,6 +9,7 @@ import TeamManager from './components/TeamManager';
 import { AppShell } from './components/layout/AppShell';
 import { ProgramProvider, useProgram } from './context/ProgramContext';
 import { ErrorBoundary, SectionErrorBoundary } from './components/ErrorBoundary';
+import { toaster } from './utils/toast';
 
 const AppRoutes: React.FC = () => {
   const {
@@ -85,6 +86,7 @@ function App() {
           <AppRoutes />
         </Router>
       </ProgramProvider>
+      {toaster.Toaster && <toaster.Toaster />}
     </ErrorBoundary>
   );
 }

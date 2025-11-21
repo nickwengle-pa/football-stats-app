@@ -205,6 +205,8 @@ export interface Play {
   yards: number;
   playerId?: UUID;
   primaryPlayerId?: UUID;
+  /** Which side this play belongs to. Defaults to home if not set. */
+  teamSide?: 'home' | 'away';
   description: string;
   timestamp: Timestamp;
   quarter?: number;

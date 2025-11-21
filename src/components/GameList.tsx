@@ -235,7 +235,26 @@ const formatGameDate = (timestamp?: Timestamp) => {
 };
 
 const formatGameTime = (kick?: string, timestamp?: Timestamp) => {
-  if (kick) return kick;
+  if (kick) {
+    const trimmed = kick.trim();
+    const match12 = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (match12) {
+      const [, h, m, period] = match12;
+      const hour = parseInt(h, 10) || 12;
+      return `${hour}:${m} ${period.toUpperCase()}`;
+    }
+
+    const match24 = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+    if (match24) {
+      const [, h, m] = match24;
+      const hour24 = Math.min(Math.max(parseInt(h, 10) || 0, 0), 23);
+      const period = hour24 >= 12 ? 'PM' : 'AM';
+      const hour12 = hour24 % 12 || 12;
+      return `${hour12}:${m} ${period}`;
+    }
+
+    return trimmed;
+  }
   if (!timestamp) return '--';
   return timestamp.toDate().toLocaleTimeString(undefined, {
     hour: 'numeric',
