@@ -160,6 +160,10 @@ export enum PlayType {
   PASS_COMPLETE = 'pass_complete',
   PASS_INCOMPLETE = 'pass_incomplete',
   RECEPTION = 'reception',
+  SPIKE = 'spike',
+  KNEEL = 'kneel',
+  LATERAL = 'lateral',
+  BAD_SNAP = 'bad_snap',
   
   // Scoring plays
   RUSH_TD = 'rush_td',

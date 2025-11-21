@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { getAuth, signInAnonymously, UserCredential } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
@@ -22,7 +22,14 @@ if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
 }
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+
+// Initialize Firestore with modern offline persistence
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+});
+
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 
@@ -53,15 +60,5 @@ if (typeof window !== 'undefined') {
     console.error('Failed to initialize authentication', err);
   });
 }
-
-// Enable offline persistence (seamless sync)
-enableIndexedDbPersistence(db)
-  .catch((err) => {
-    if (err.code === 'failed-precondition') {
-      console.log('Persistence failed: Multiple tabs open');
-    } else if (err.code === 'unimplemented') {
-      console.log('Persistence not supported');
-    }
-  });
 
 export {};

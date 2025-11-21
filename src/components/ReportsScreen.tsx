@@ -9,12 +9,27 @@ import {
   Stack,
   Text,
   Image,
+  SimpleGrid,
+  Box,
 } from '@chakra-ui/react';
+import {
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
 import { subscribeToGame } from '../services/dbService';
-import { Game } from '../models';
+import { Game, PlayType } from '../models';
 import { PageHeader, SectionCard, DataTable, DataTableColumn } from './ui';
 import { useProgram } from '../context/ProgramContext';
-import { getOpponentName } from '../utils/gameUtils';
+import { getOpponentName, getMyTeamRoster } from '../utils/gameUtils';
 
 type PlayRow = {
   description: string;
@@ -94,6 +109,40 @@ const ReportsScreen: React.FC = () => {
         : [],
     [game]
   );
+
+  // Chart data
+  const playTypeData = useMemo(() => {
+    if (!game) return [];
+    
+    const counts: Record<string, number> = {};
+    game.plays.forEach((play) => {
+      const type = play.type;
+      counts[type] = (counts[type] || 0) + 1;
+    });
+
+    return Object.entries(counts).map(([type, count]) => ({
+      name: type.replace(/_/g, ' ').toUpperCase(),
+      value: count,
+    }));
+  }, [game]);
+
+  const topPlayersData = useMemo(() => {
+    if (!game) return [];
+
+    const roster = getMyTeamRoster(game).filter(p => p.id !== 'team-placeholder-player');
+    
+    return roster
+      .map((player) => ({
+        name: player.name,
+        rushYards: player.stats.rushingYards || 0,
+        passYards: player.stats.passingYards || 0,
+        tackles: player.stats.tackles || 0,
+      }))
+      .filter(p => p.rushYards > 0 || p.passYards > 0 || p.tackles > 0)
+      .slice(0, 5);
+  }, [game]);
+
+  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82ca9d'];
 
   const columns: DataTableColumn<PlayRow>[] = useMemo(
     () => [
@@ -222,6 +271,51 @@ const ReportsScreen: React.FC = () => {
           </HStack>
         </Stack>
       </SectionCard>
+
+      {/* Data Visualizations */}
+      {game.plays.length > 0 && (
+        <>
+          <SectionCard title="Play Type Distribution">
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={playTypeData}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={(entry: any) => `${entry.name} ${(entry.percent * 100).toFixed(0)}%`}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  dataKey="value"
+                >
+                  {playTypeData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </SectionCard>
+
+          {topPlayersData.length > 0 && (
+            <SectionCard title="Top Player Performance">
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={topPlayersData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="rushYards" fill="#82ca9d" name="Rush Yards" />
+                  <Bar dataKey="passYards" fill="#8884d8" name="Pass Yards" />
+                  <Bar dataKey="tackles" fill="#ffc658" name="Tackles" />
+                </BarChart>
+              </ResponsiveContainer>
+            </SectionCard>
+          )}
+        </>
+      )}
 
       <SectionCard
         title="Play-by-Play"
