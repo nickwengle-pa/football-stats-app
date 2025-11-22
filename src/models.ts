@@ -244,6 +244,20 @@ export interface Game {
   homeScore: number;
   oppScore: number;
   
+  // Game state for resuming
+  currentQuarter?: number;
+  timeRemaining?: number;
+  possession?: 'home' | 'away';
+  down?: number;
+  yardsToGo?: number;
+  fieldPosition?: number;
+  direction?: 'left-to-right' | 'right-to-left';
+  homeTimeouts?: number;
+  awayTimeouts?: number;
+  possessionClockStart?: number;
+  homeTopSeconds?: number;
+  awayTopSeconds?: number;
+  
   // DEPRECATED: Use myTeamSnapshot.roster instead
   // Kept for backward compatibility during migration
   /** @deprecated Use myTeamSnapshot.roster instead */

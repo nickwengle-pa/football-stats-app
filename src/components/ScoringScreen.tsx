@@ -19,15 +19,6 @@ import {
   useDisclosure,
   Portal,
   HStack,
-  DialogRoot,
-  DialogBackdrop,
-  DialogContent,
-  DialogHeader,
-  DialogBody,
-  DialogFooter,
-  DialogTitle,
-  DialogCloseTrigger,
-  DialogPositioner,
 } from '@chakra-ui/react';
 import { Game, Play, PlayType, Player, OpponentTeam } from '../models';
 import { subscribeToGame, saveGame, listOpponents, getSeasonRoster } from '../services/dbService';
@@ -51,9 +42,12 @@ type PlayInputState = {
   player: Player | null;
   passer: Player | null;
   receiver: Player | null;
+  defensivePlayer: Player | null; // For INTs, sacks, tackles, etc.
   yards: number;
   startYard: number;
+  interceptionYard: number; // Where the INT was caught (for interceptions)
   endYard: number;
+  side: 'home' | 'away';
 } | null;
 
 const formatTime = (timestamp: Timestamp) =>
@@ -76,9 +70,9 @@ const formatBallDisplay = (spot: number, homeLabel: string, awayLabel: string) =
 
 // Updated to use PlayType enum - simplified for manual input
 const quickActions = [
-  // Offensive - no preset yards
+  // Offensive - no preset yards (these are just UI triggers, not actual plays)
   { label: 'Run', type: PlayType.RUSH, yards: 0, color: 'green', category: 'offense' },
-  { label: 'Pass', type: PlayType.PASS_COMPLETE, yards: 0, color: 'blue', category: 'offense' },
+  // Note: Pass button removed from this list since PASS_COMPLETE should only match pass-outcome
   
   // Run play outcomes
   { label: 'Rush', type: PlayType.RUSH, yards: 0, color: 'green', category: 'run-outcome' },
@@ -100,14 +94,6 @@ const quickActions = [
   { label: 'Scramble', type: PlayType.RUSH, yards: 0, color: 'green', category: 'pass-outcome' },
   { label: 'Penalty', type: PlayType.PENALTY, yards: 0, color: 'yellow', category: 'pass-outcome' },
   
-  // Scoring (after touchdown)
-  { label: 'Rush TD', type: PlayType.RUSH_TD, yards: 0, color: 'green', category: 'scoring', points: 6 },
-  { label: 'Pass TD', type: PlayType.PASS_TD, yards: 0, color: 'blue', category: 'scoring', points: 6 },
-  { label: 'XP Kick', type: PlayType.EXTRA_POINT_KICK_MADE, yards: 0, color: 'teal', category: 'scoring', points: 1 },
-  { label: '2PT Conv', type: PlayType.TWO_POINT_CONVERSION_MADE, yards: 0, color: 'cyan', category: 'scoring', points: 2 },
-  { label: 'Field Goal', type: PlayType.FIELD_GOAL_MADE, yards: 0, color: 'teal', category: 'scoring', points: 3 },
-  { label: 'Safety', type: PlayType.SAFETY, yards: 0, color: 'red', category: 'scoring', points: 2 },
-  
   // Defensive
   { label: 'Tackle', type: PlayType.TACKLE, yards: 0, color: 'red', category: 'defense' },
   { label: 'TFL', type: PlayType.TACKLE_FOR_LOSS, yards: 0, color: 'red', category: 'defense' },
@@ -116,7 +102,14 @@ const quickActions = [
   { label: 'Fumble Rec', type: PlayType.FUMBLE_RECOVERY, yards: 0, color: 'orange', category: 'defense' },
   
   // Kicking
+  { label: 'Kickoff', type: PlayType.KICKOFF, yards: 0, color: 'purple', category: 'kicking' },
   { label: 'Punt', type: PlayType.PUNT, yards: 0, color: 'gray', category: 'kicking' },
+  { label: 'Field Goal', type: PlayType.FIELD_GOAL_MADE, yards: 0, color: 'teal', category: 'kicking', points: 3 },
+  { label: 'FG Missed', type: PlayType.FIELD_GOAL_MISSED, yards: 0, color: 'red', category: 'kicking' },
+  { label: 'XP Kick', type: PlayType.EXTRA_POINT_KICK_MADE, yards: 0, color: 'teal', category: 'kicking', points: 1 },
+  { label: 'XP Missed', type: PlayType.EXTRA_POINT_KICK_MISSED, yards: 0, color: 'red', category: 'kicking' },
+  { label: '2PT Conv', type: PlayType.TWO_POINT_CONVERSION_MADE, yards: 0, color: 'cyan', category: 'kicking', points: 2 },
+  { label: '2PT Failed', type: PlayType.TWO_POINT_CONVERSION_FAILED, yards: 0, color: 'red', category: 'kicking' },
 ] as const;
 
 const ScoringScreen: React.FC = () => {
@@ -152,8 +145,13 @@ const ScoringScreen: React.FC = () => {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [pendingPlay, setPendingPlay] = useState<{ type: PlayType; yards: number; side: 'home' | 'away' } | null>(null);
   const [jerseySearch, setJerseySearch] = useState<string>('');
+  const [passerSearch, setPasserSearch] = useState<string>('');
+  const [receiverSearch, setReceiverSearch] = useState<string>('');
+  const [defenseSearch, setDefenseSearch] = useState<string>('');
   const { open: isOpen, onOpen, onClose } = useDisclosure();
   const [lastRusher, setLastRusher] = useState<Player | null>(null); // Remember last rusher
+  const [lastPasser, setLastPasser] = useState<Player | null>(null); // Remember last passer
+  const [lastReceiver, setLastReceiver] = useState<Player | null>(null); // Remember last receiver
 
   // Play editor state
   const [editingPlay, setEditingPlay] = useState<Play | null>(null);
@@ -171,6 +169,8 @@ const ScoringScreen: React.FC = () => {
   const [timeRemaining, setTimeRemaining] = useState<number>(12 * 60); // 12 minutes in seconds
   const [isClockRunning, setIsClockRunning] = useState<boolean>(false);
   const clockIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isInitialLoadRef = useRef<boolean>(true); // Track if this is the first load
+  const gameRef = useRef<Game | null>(null); // Store game for save operations
 
   // Field position state
   const [fieldPosition, setFieldPosition] = useState<number>(25); // Starting at own 25
@@ -193,6 +193,30 @@ const ScoringScreen: React.FC = () => {
   };
   const handleJerseyClear = () => setJerseySearch('');
   const [showJerseyPad, setShowJerseyPad] = useState<boolean>(false);
+  
+  // Return yard number pad handlers
+  const handleReturnYardDigit = (digit: number) => {
+    const newValue = returnYardValue === '0' ? `${digit}` : `${returnYardValue}${digit}`;
+    const numValue = parseInt(newValue);
+    if (numValue <= 50) {
+      setReturnYardValue(newValue);
+      const actualYard = convertFromPlCt(returnYardSide, numValue);
+      setPlayInput(prev => prev ? { ...prev, endYard: actualYard } : prev);
+    }
+  };
+  const handleReturnYardBackspace = () => {
+    const newValue = returnYardValue.slice(0, -1) || '0';
+    setReturnYardValue(newValue);
+    const numValue = parseInt(newValue);
+    const actualYard = convertFromPlCt(returnYardSide, numValue);
+    setPlayInput(prev => prev ? { ...prev, endYard: actualYard } : prev);
+  };
+  const handleReturnYardClear = () => {
+    setReturnYardValue('0');
+    const actualYard = convertFromPlCt(returnYardSide, 0);
+    setPlayInput(prev => prev ? { ...prev, endYard: actualYard } : prev);
+  };
+  
   const {
     open: isPossessionPromptOpen,
     onOpen: onPossessionPromptOpen,
@@ -203,8 +227,43 @@ const ScoringScreen: React.FC = () => {
   const [homeTimeouts, setHomeTimeouts] = useState<number>(3);
   const [awayTimeouts, setAwayTimeouts] = useState<number>(3);
   const [timeoutTeam, setTimeoutTeam] = useState<'home' | 'away' | null>(null);
-  const { open: isTimeoutOpen, onOpen: onTimeoutOpen, onClose: onTimeoutClose } = useDisclosure();
-  const [timeoutTime, setTimeoutTime] = useState<string>('');
+
+  // Interception time state (for possession change tracking)
+  const [pendingInterception, setPendingInterception] = useState<{
+    play: Play;
+    nextGame: any;
+  } | null>(null);
+  const { open: isInterceptionTimeOpen, onOpen: onInterceptionTimeOpen, onClose: onInterceptionTimeClose } = useDisclosure();
+  const [interceptionTime, setInterceptionTime] = useState<string>('');
+
+  // Quarter change confirmation state
+  const [pendingQuarterChange, setPendingQuarterChange] = useState<{ newQuarter: number } | null>(null);
+  const { open: isQuarterChangeOpen, onOpen: onQuarterChangeOpen, onClose: onQuarterChangeClose } = useDisclosure();
+
+  // Extra point / 2PT conversion state (after touchdowns)
+  const [pendingExtraPoint, setPendingExtraPoint] = useState<{
+    scoringTeam: 'home' | 'away';
+    tdGame: any;
+  } | null>(null);
+  const { open: isExtraPointOpen, onOpen: onExtraPointOpen, onClose: onExtraPointClose } = useDisclosure();
+  const [extraPointType, setExtraPointType] = useState<'xp-made' | 'xp-missed' | '2pt-made' | '2pt-failed' | null>(null);
+  const [extraPointPlayer, setExtraPointPlayer] = useState<Player | null>(null);
+  const [extraPointSearch, setExtraPointSearch] = useState<string>('');
+  const [pendingKickoff, setPendingKickoff] = useState<{ kickingTeam: 'home' | 'away' } | null>(null);
+
+  // Kickoff return state
+  const [pendingKickoffReturn, setPendingKickoffReturn] = useState<{
+    kickPlay: Play;
+    kickEndYard: number;
+    kickingTeam: 'home' | 'away';
+    kickGame: any;
+  } | null>(null);
+  const { open: isKickoffReturnOpen, onOpen: onKickoffReturnOpen, onClose: onKickoffReturnClose } = useDisclosure();
+  const [kickoffReturner, setKickoffReturner] = useState<Player | null>(null);
+  const [kickoffReturnSearch, setKickoffReturnSearch] = useState<string>('');
+  const [returnYardSide, setReturnYardSide] = useState<'PL' | 'CT'>('CT');
+  const [returnYardValue, setReturnYardValue] = useState<string>('50');
+  const [showReturnYardPad, setShowReturnYardPad] = useState<boolean>(false);
 
   // Play type selection state (Run or Pass)
   const [selectedPlayType, setSelectedPlayType] = useState<'run' | 'pass' | null>(null);
@@ -264,15 +323,109 @@ const ScoringScreen: React.FC = () => {
     setTimeRemaining(12 * 60);
     setIsClockRunning(false);
   };
+  
+  const openClockAdjustment = () => {
+    setClockMinutes(Math.floor(timeRemaining / 60));
+    setClockSeconds(timeRemaining % 60);
+    setPendingPossessionReason('Clock adjustment');
+    setTimeoutTeam(null); // Not a timeout, just a clock adjustment
+    onPossessionPromptOpen();
+  };
+  
   const changeQuarter = (delta: number) => {
-    setCurrentQuarter((prev) => Math.max(1, prev + delta));
-    resetClock();
+    const newQuarter = Math.max(1, currentQuarter + delta);
+    if (newQuarter !== currentQuarter) {
+      setPendingQuarterChange({ newQuarter });
+      onQuarterChangeOpen();
+    }
+  };
+  
+  const confirmQuarterChange = async () => {
+    if (!pendingQuarterChange) return;
+    
+    // Calculate time of possession for the quarter that just ended
+    const quarterElapsed = 12 * 60 - timeRemaining;
+    
+    // Set new quarter
+    setCurrentQuarter(pendingQuarterChange.newQuarter);
+    
+    // Reset clock to 12:00
+    setTimeRemaining(12 * 60);
+    setIsClockRunning(false);
+    
+    // Reset possession clock start to 12:00 (start of new quarter)
+    // The possession will accumulate from here until next change
     setPossessionClockStart(12 * 60);
+    
+    // Swap field direction (quarters 2 and 4 swap directions)
+    const willSwapDirection = pendingQuarterChange.newQuarter === 2 || pendingQuarterChange.newQuarter === 4;
+    if (willSwapDirection) {
+      swapDirection();
+    }
+    
+    // Log quarter change to play-by-play
+    const quarterName = formatQuarterLabel(pendingQuarterChange.newQuarter);
+    await logGameEvent(
+      `${quarterName} started. Clock reset to 12:00.${willSwapDirection ? ' Teams switched sides.' : ''}`,
+      PlayType.OTHER
+    );
+    
+    onQuarterChangeClose();
+    setPendingQuarterChange(null);
+    
+    setFeedback({ 
+      status: 'success', 
+      message: `Quarter ${pendingQuarterChange.newQuarter} started. Direction swapped. Clock reset to 12:00.` 
+    });
+  };
+
+  // Helper function to log game events to play-by-play
+  const logGameEvent = async (description: string, eventType: PlayType = PlayType.OTHER) => {
+    if (!game || !teamId || !activeSeasonId) return;
+    
+    const eventPlay: Play = {
+      id: uuidv4(),
+      type: eventType,
+      yards: 0,
+      playerId: 'team-placeholder-player',
+      description,
+      timestamp: Timestamp.now(),
+      quarter: currentQuarter,
+      teamSide: possession,
+    };
+    
+    const updatedGame = addPlayAndRecalc(game, eventPlay);
+    setGame(updatedGame);
+    await saveGame(updatedGame, { teamId, seasonId: activeSeasonId });
   };
 
   const setManualDown = (value: number) => setDown(clamp(Math.round(value) || 1, 1, 4));
   const setManualDistance = (value: number) => setYardsToGo(clamp(Math.round(value) || 1, 1, 99));
   const setManualBallSpot = (value: number) => setFieldPosition(clamp(value || 0, 0, 100));
+  
+  // Helper to advance ball toward opponent's goal (accounts for direction)
+  const advanceBall = () => {
+    // Home team attacks toward 100 when left-to-right, toward 0 when right-to-left
+    // Away team attacks toward 0 when left-to-right, toward 100 when right-to-left
+    const shouldIncrease = 
+      (possession === 'home' && direction === 'left-to-right') ||
+      (possession === 'away' && direction === 'right-to-left');
+    
+    const newPosition = shouldIncrease ? fieldPosition + 1 : fieldPosition - 1;
+    setFieldPosition(clamp(newPosition, 0, 100));
+  };
+  
+  // Helper to retreat ball toward own goal (accounts for direction)
+  const retreatBall = () => {
+    // Home team retreats toward 0 when left-to-right, toward 100 when right-to-left
+    // Away team retreats toward 100 when left-to-right, toward 0 when right-to-left
+    const shouldIncrease = 
+      (possession === 'home' && direction === 'right-to-left') ||
+      (possession === 'away' && direction === 'left-to-right');
+    
+    const newPosition = shouldIncrease ? fieldPosition + 1 : fieldPosition - 1;
+    setFieldPosition(clamp(newPosition, 0, 100));
+  };
 
   const updateClockFromDigits = (raw: string) => {
     const clean = raw.replace(/\D/g, '').slice(-4);
@@ -335,9 +488,20 @@ const ScoringScreen: React.FC = () => {
     setPossessionClockStart(timeRemaining);
   };
 
-  const changePossession = (reason?: string) => {
+  const changePossession = async (reason?: string) => {
     recordPossessionTime(possession);
-    setPossession((prev) => (prev === 'home' ? 'away' : 'home'));
+    const oldPossession = possession;
+    const newPossession = oldPossession === 'home' ? 'away' : 'home';
+    setPossession(newPossession);
+    
+    // Log possession change to play-by-play
+    const possessionTeam = newPossession === 'home' ? teamName : opponentName;
+    const changeReason = reason || 'Possession change';
+    await logGameEvent(
+      `${changeReason}. ${possessionTeam} takes possession.`,
+      PlayType.OTHER
+    );
+    
     if (reason) {
       setFeedback({ status: 'info', message: reason });
     }
@@ -353,41 +517,82 @@ const ScoringScreen: React.FC = () => {
     onPossessionPromptOpen();
   };
 
-  const confirmPossessionChange = () => {
+  const confirmPossessionChange = async () => {
     const nextTime = clamp(clockMinutes * 60 + clockSeconds, 0, 12 * 60);
     setTimeRemaining(nextTime);
     setPossessionClockStart(nextTime);
-    changePossession(pendingPossessionReason || 'Possession flipped');
+    
+    // If this is a timeout, record it and don't change possession
+    if (timeoutTeam) {
+      await recordTimeout();
+      onPossessionPromptClose();
+      return;
+    }
+    
+    // If this is just a clock adjustment (no timeout, no kickoff, no possession change)
+    if (pendingPossessionReason === 'Clock adjustment') {
+      onPossessionPromptClose();
+      setPendingPossessionReason(null);
+      return;
+    }
+    
+    // If this is a kickoff after scoring, setup the kickoff position
+    if (pendingKickoff) {
+      const kickingTeam = pendingKickoff.kickingTeam;
+      
+      // Change possession to the scoring team (they kick off)
+      changePossession(`Kickoff by ${kickingTeam === 'home' ? teamName : opponentName}`);
+      
+      // Place ball at kicking team's 40-yard line
+      // If home team is kicking: their 40 is at position 40
+      // If away team is kicking: their 40 is at position 60 (100 - 40)
+      const kickoffPosition = kickingTeam === 'home' ? 40 : 60;
+      setFieldPosition(kickoffPosition);
+      setYardsToGo(10);
+      setDown(1);
+      
+      setPendingKickoff(null);
+    } else {
+      changePossession(pendingPossessionReason || 'Possession flipped');
+    }
+    
     setPendingPossessionReason(null);
     onPossessionPromptClose();
   };
 
+  // Helper functions to convert between 0-100 yard scale and PL/CT format
+  const convertToPlCt = (yard: number): { side: 'PL' | 'CT', value: number } => {
+    if (yard === 50) return { side: 'CT', value: 50 };
+    if (yard < 50) return { side: 'PL', value: yard };
+    return { side: 'CT', value: 100 - yard };
+  };
+
+  const convertFromPlCt = (side: 'PL' | 'CT', value: number): number => {
+    if (side === 'CT' && value === 50) return 50;
+    if (side === 'PL') return value;
+    return 100 - value; // CT side (opponent's side)
+  };
+
   // Play yard helpers (functional updates to avoid stale state and keep fields in sync)
   const setPlayStart = (value: number) => {
-    setPlayInput((prev) => {
-      if (!prev) return prev;
-      const start = clamp(Math.round(value) || 0, 0, 100);
-      return { ...prev, startYard: start };
-    });
+    const start = clamp(Math.round(value) || 0, 0, 100);
+    if (!playInput) return;
+    setPlayInput({ ...playInput, startYard: start });
   };
 
   const setPlayEnd = (value: number) => {
-    setPlayInput((prev) => {
-      if (!prev) return prev;
-      const end = clamp(Math.round(value) || 0, 0, 100);
-      const yards = end - prev.startYard;
-      return { ...prev, endYard: end, yards };
-    });
+    const end = clamp(Math.round(value) || 0, 0, 100);
+    if (!playInput) return;
+    const yards = end - playInput.startYard;
+    setPlayInput({ ...playInput, endYard: end, yards });
   };
 
   const setPlayYards = (value: number) => {
-    setPlayInput((prev) => {
-      if (!prev) return prev;
-      const yards = Math.round(value) || 0;
-      const end = clamp(prev.startYard + yards, 0, 100);
-      const adjustedYards = end - prev.startYard;
-      return { ...prev, yards: adjustedYards, endYard: end };
-    });
+    if (!playInput) return;
+    const yards = Math.round(value) || 0;
+    const end = clamp(playInput.startYard + yards, 0, 100);
+    const adjustedYards = end - playInput.startYard;
+    setPlayInput({ ...playInput, yards: adjustedYards, endYard: end });
   };
 
   useEffect(() => {
@@ -397,17 +602,87 @@ const ScoringScreen: React.FC = () => {
       return;
     }
 
+    // Reset initial load flag when game changes
+    isInitialLoadRef.current = true;
+
     const unsubscribe = subscribeToGame(
       gameId,
       (snapshot) => {
         setGame(snapshot);
+        gameRef.current = snapshot; // Store in ref for save operations
         setLoading(false);
+        
+        // Only restore game state on initial load, not on subsequent updates
+        if (snapshot && isInitialLoadRef.current) {
+          if (snapshot.currentQuarter !== undefined) setCurrentQuarter(snapshot.currentQuarter);
+          if (snapshot.timeRemaining !== undefined) setTimeRemaining(snapshot.timeRemaining);
+          if (snapshot.possession !== undefined) setPossession(snapshot.possession);
+          if (snapshot.down !== undefined) setDown(snapshot.down);
+          if (snapshot.yardsToGo !== undefined) setYardsToGo(snapshot.yardsToGo);
+          if (snapshot.fieldPosition !== undefined) setFieldPosition(snapshot.fieldPosition);
+          if (snapshot.direction !== undefined) setDirection(snapshot.direction);
+          if (snapshot.homeTimeouts !== undefined) setHomeTimeouts(snapshot.homeTimeouts);
+          if (snapshot.awayTimeouts !== undefined) setAwayTimeouts(snapshot.awayTimeouts);
+          if (snapshot.possessionClockStart !== undefined) setPossessionClockStart(snapshot.possessionClockStart);
+          if (snapshot.homeTopSeconds !== undefined) setHomeTopSeconds(snapshot.homeTopSeconds);
+          if (snapshot.awayTopSeconds !== undefined) setAwayTopSeconds(snapshot.awayTopSeconds);
+          
+          isInitialLoadRef.current = false; // Mark that initial load is complete
+        }
       },
       { teamId, seasonId: activeSeasonId }
     );
 
     return unsubscribe;
   }, [teamId, activeSeasonId, gameId]);
+
+  // Save game state whenever it changes
+  useEffect(() => {
+    if (!gameRef.current || !teamId || !activeSeasonId || gameId === 'new' || isInitialLoadRef.current) return;
+
+    const timeoutId = setTimeout(async () => {
+      const updatedGame: Game = {
+        ...gameRef.current!,
+        currentQuarter,
+        timeRemaining,
+        possession,
+        down,
+        yardsToGo,
+        fieldPosition,
+        direction,
+        homeTimeouts,
+        awayTimeouts,
+        possessionClockStart,
+        homeTopSeconds,
+        awayTopSeconds,
+      };
+      
+      try {
+        await saveGame(updatedGame, { teamId, seasonId: activeSeasonId });
+      } catch (error) {
+        console.error('Failed to save game state', error);
+      }
+    }, 500); // Debounce saves by 500ms
+
+    return () => clearTimeout(timeoutId);
+  }, [
+    currentQuarter,
+    timeRemaining,
+    possession,
+    down,
+    yardsToGo,
+    fieldPosition,
+    direction,
+    homeTimeouts,
+    awayTimeouts,
+    possessionClockStart,
+    homeTopSeconds,
+    awayTopSeconds,
+    // Note: Don't include 'game' to avoid save loops when Firestore updates
+    teamId,
+    activeSeasonId,
+    gameId,
+  ]);
 
   // Load opponent data
   useEffect(() => {
@@ -655,21 +930,57 @@ const ScoringScreen: React.FC = () => {
     };
   }, [fieldPosition, possession, down, yardsToGo, branding.primaryColor, opponent, team, teamName, opponentName, direction]);
 
-  // Filtered roster based on jersey search
+  // Filtered roster based on jersey search (for run plays and old modal)
   const filteredRoster = useMemo(() => {
-    if (!jerseySearch) return roster;
-    return roster.filter(p => 
+    // Use opponent roster when opponent has possession
+    const activeRoster = (playInput?.side === 'away' && opponent?.roster) 
+      ? opponent.roster 
+      : roster;
+    
+    if (!jerseySearch) return activeRoster;
+    return activeRoster.filter(p => 
       p.jerseyNumber?.toString().includes(jerseySearch) ||
       p.name.toLowerCase().includes(jerseySearch.toLowerCase())
     );
-  }, [roster, jerseySearch]);
+  }, [roster, opponent, playInput, jerseySearch]);
+
+  // Filtered roster for passer selection
+  const filteredPassers = useMemo(() => {
+    const activeRoster = (playInput?.side === 'away' && opponent?.roster) 
+      ? opponent.roster 
+      : roster;
+    
+    if (!passerSearch) return activeRoster;
+    return activeRoster.filter(p => 
+      p.jerseyNumber?.toString().includes(passerSearch) ||
+      p.name.toLowerCase().includes(passerSearch.toLowerCase())
+    );
+  }, [roster, opponent, playInput, passerSearch]);
+
+  // Filtered roster for receiver selection
+  const filteredReceivers = useMemo(() => {
+    const activeRoster = (playInput?.side === 'away' && opponent?.roster) 
+      ? opponent.roster 
+      : roster;
+    
+    if (!receiverSearch) return activeRoster;
+    return activeRoster.filter(p => 
+      p.jerseyNumber?.toString().includes(receiverSearch) ||
+      p.name.toLowerCase().includes(receiverSearch.toLowerCase())
+    );
+  }, [roster, opponent, playInput, receiverSearch]);
 
   // Auto-select player when exact jersey number match is found
   useEffect(() => {
     if (!playInput || !jerseySearch) return;
     
+    // Use opponent roster when opponent has possession
+    const activeRoster = (playInput?.side === 'away' && opponent?.roster) 
+      ? opponent.roster 
+      : roster;
+    
     // Check for exact jersey number match
-    const exactMatch = roster.find(p => p.jerseyNumber?.toString() === jerseySearch);
+    const exactMatch = activeRoster.find(p => p.jerseyNumber?.toString() === jerseySearch);
     if (exactMatch) {
       const action = quickActions.find(a => a.type === playInput.type);
       const isPassPlay = action?.category === 'pass-outcome';
@@ -679,17 +990,17 @@ const ScoringScreen: React.FC = () => {
       if (isPassPlay) {
         // For pass plays, auto-fill passer first if not set
         if (!playInput.passer) {
-          setPlayInput({...playInput, passer: exactMatch});
+          setPlayInput(prev => prev ? {...prev, passer: exactMatch} : prev);
         } else if (isCompletePass && !playInput.receiver) {
           // If passer is set and it's a complete pass, auto-fill receiver
-          setPlayInput({...playInput, receiver: exactMatch});
+          setPlayInput(prev => prev ? {...prev, receiver: exactMatch} : prev);
         }
       } else {
         // For run plays, auto-fill player
-        setPlayInput({...playInput, player: exactMatch});
+        setPlayInput(prev => prev ? {...prev, player: exactMatch} : prev);
       }
     }
-  }, [jerseySearch, roster, playInput, quickActions]);
+  }, [jerseySearch, roster, opponent, quickActions]);
 
   // Timeout handling
   const openTimeoutModal = (team: 'home' | 'away') => {
@@ -698,11 +1009,15 @@ const ScoringScreen: React.FC = () => {
       return;
     }
     setTimeoutTeam(team);
-    setTimeoutTime(formatClock(timeRemaining));
-    onTimeoutOpen();
+    
+    // Set clock to current time and open clock modal
+    setClockMinutes(Math.floor(timeRemaining / 60));
+    setClockSeconds(timeRemaining % 60);
+    setPendingPossessionReason(`Timeout called by ${team === 'home' ? teamName : opponentName}`);
+    onPossessionPromptOpen();
   };
 
-  const recordTimeout = () => {
+  const recordTimeout = async () => {
     if (!timeoutTeam) return;
     
     if (timeoutTeam === 'home') {
@@ -711,24 +1026,212 @@ const ScoringScreen: React.FC = () => {
       setAwayTimeouts(prev => Math.max(0, prev - 1));
     }
     
+    // Format the clock time
+    const clockTime = `${clockMinutes.toString().padStart(2, '0')}:${clockSeconds.toString().padStart(2, '0')}`;
+    const timeoutMessage = `Timeout charged to ${timeoutTeam === 'home' ? teamName : opponentName} at ${clockTime} in Q${currentQuarter}`;
+    
+    // Update the game clock to the set time
+    const nextTime = clamp(clockMinutes * 60 + clockSeconds, 0, 12 * 60);
+    setTimeRemaining(nextTime);
+    
+    // Log timeout to play-by-play
+    await logGameEvent(timeoutMessage, PlayType.TIMEOUT);
+    
     setFeedback({ 
       status: 'success', 
-      message: `Timeout charged to ${timeoutTeam === 'home' ? teamName : opponentName} at ${timeoutTime} in Q${currentQuarter}` 
+      message: timeoutMessage
     });
     
-    onTimeoutClose();
     setTimeoutTeam(null);
-    setTimeoutTime('');
+    setPendingPossessionReason(null);
+  };
+
+  const recordInterceptionTime = async () => {
+    if (!pendingInterception || !teamId || !activeSeasonId) return;
+    
+    const { play, nextGame } = pendingInterception;
+    
+    try {
+      // Save the game with the interception play
+      setGame(nextGame);
+      await saveGame(nextGame, { teamId, seasonId: activeSeasonId });
+      
+      // Calculate drive elapsed time for the throwing team
+      const driveElapsed = Math.max(0, possessionClockStart - timeRemaining);
+      
+      // Change possession to the defensive team
+      const newPossession = possession === 'home' ? 'away' : 'home';
+      const newPossessionTeam = newPossession === 'home' ? teamName : opponentName;
+      setPossession(newPossession);
+      setDown(1);
+      setYardsToGo(10);
+      
+      // Update ball position to where the return ended
+      if (playInput) {
+        setFieldPosition(playInput.endYard);
+      }
+      
+      // Set possession clock start for the new drive
+      setPossessionClockStart(timeRemaining);
+      
+      // Format the clock time for the message
+      const clockTime = `${clockMinutes.toString().padStart(2, '0')}:${clockSeconds.toString().padStart(2, '0')}`;
+      
+      // Log possession change after interception
+      await logGameEvent(
+        `Interception return complete. ${newPossessionTeam} takes possession at yard line ${playInput?.endYard}. Drive TOP: ${formatTop(driveElapsed)}`,
+        PlayType.OTHER
+      );
+      
+      setFeedback({ 
+        status: 'success', 
+        message: `Interception at ${clockTime} Q${currentQuarter}. Possession changes to ${newPossessionTeam}. Drive TOP: ${formatTop(driveElapsed)}` 
+      });
+      
+      // Close modals and reset state
+      onInterceptionTimeClose();
+      setPendingInterception(null);
+      setInterceptionTime('');
+      onPlayInputClose();
+      setPlayInput(null);
+      setSelectedPlayType(null);
+    } catch (error) {
+      console.error('Failed to record interception', error);
+      setFeedback({ status: 'error', message: 'Unable to record interception. Try again.' });
+    }
+  };
+
+  const recordExtraPoint = async () => {
+    if (!pendingExtraPoint || !extraPointType || !teamId || !activeSeasonId) return;
+    
+    const { scoringTeam, tdGame } = pendingExtraPoint;
+    
+    try {
+      let updatedGame = { ...tdGame };
+      let pointsAwarded = 0;
+      let playDescription = '';
+      let playType = PlayType.OTHER;
+      let playerId = 'team-placeholder-player';
+      
+      // Handle each extra point type
+      if (extraPointType === 'xp-made') {
+        if (!extraPointPlayer) return; // Kicker required
+        pointsAwarded = 1;
+        playerId = extraPointPlayer.id;
+        playType = PlayType.EXTRA_POINT_KICK_MADE;
+        playDescription = `Extra point by ${extraPointPlayer.name} is GOOD`;
+      } else if (extraPointType === 'xp-missed') {
+        if (!extraPointPlayer) return; // Kicker required
+        playerId = extraPointPlayer.id;
+        playType = PlayType.EXTRA_POINT_KICK_MISSED;
+        playDescription = `Extra point by ${extraPointPlayer.name} is NO GOOD`;
+      } else if (extraPointType === '2pt-made') {
+        if (!extraPointPlayer) return; // Player required
+        pointsAwarded = 2;
+        playerId = extraPointPlayer.id;
+        playType = PlayType.TWO_POINT_CONVERSION_MADE;
+        playDescription = `2-point conversion by ${extraPointPlayer.name} is GOOD`;
+      } else if (extraPointType === '2pt-failed') {
+        playType = PlayType.TWO_POINT_CONVERSION_FAILED;
+        playDescription = `2-point conversion attempt failed`;
+      }
+      
+      // Add points to score
+      if (pointsAwarded > 0) {
+        if (scoringTeam === 'home') {
+          updatedGame = { ...updatedGame, homeScore: (updatedGame.homeScore || 0) + pointsAwarded };
+        } else {
+          updatedGame = { ...updatedGame, oppScore: (updatedGame.oppScore || 0) + pointsAwarded };
+        }
+      }
+      
+      // Create the extra point play
+      const extraPointPlay: Play = {
+        id: uuidv4(),
+        type: playType,
+        yards: 0,
+        playerId,
+        description: playDescription,
+        timestamp: Timestamp.now(),
+        quarter: currentQuarter,
+        teamSide: scoringTeam,
+      };
+      
+      // Add play and save
+      updatedGame = addPlayAndRecalc(updatedGame, extraPointPlay);
+      setGame(updatedGame);
+      await saveGame(updatedGame, { teamId, seasonId: activeSeasonId });
+      
+      // Close extra point modal and show clock modal to set kickoff time
+      onExtraPointClose();
+      setPendingExtraPoint(null);
+      
+      // Setup kickoff: Set the flag so confirmPossessionChange knows to setup kickoff
+      setPendingKickoff({ kickingTeam: scoringTeam });
+      
+      // Set clock for kickoff
+      setClockMinutes(Math.floor(timeRemaining / 60));
+      setClockSeconds(timeRemaining % 60);
+      setPendingPossessionReason(`Kickoff after ${scoringTeam === 'home' ? teamName : opponentName} scored`);
+      onPossessionPromptOpen();
+      
+      setFeedback({ status: 'success', message: `${playDescription}` });
+    } catch (error) {
+      console.error('Failed to record extra point', error);
+      setFeedback({ status: 'error', message: 'Unable to record extra point. Try again.' });
+    }
+  };
+
+  const recordKickoffReturn = async () => {
+    if (!pendingKickoffReturn || !kickoffReturner || !teamId || !activeSeasonId || !playInput) return;
+    
+    const { kickPlay, kickEndYard, kickingTeam, kickGame } = pendingKickoffReturn;
+    const receivingTeam = kickingTeam === 'home' ? 'away' : 'home';
+    
+    try {
+      // Create the kickoff return play
+      const returnYards = playInput.endYard - kickEndYard;
+      const returnPlay: Play = {
+        id: uuidv4(),
+        type: PlayType.KICKOFF_RETURN,
+        yards: returnYards,
+        playerId: kickoffReturner.id,
+        description: `Kickoff return by ${kickoffReturner.name} for ${Math.abs(returnYards)} yards`,
+        timestamp: Timestamp.now(),
+        quarter: currentQuarter,
+        teamSide: receivingTeam,
+      };
+      
+      // Add return play and save
+      let updatedGame = addPlayAndRecalc(kickGame, returnPlay);
+      setGame(updatedGame);
+      await saveGame(updatedGame, { teamId, seasonId: activeSeasonId });
+      
+      // Change possession to receiving team and set field position to return end yard
+      changePossession(`${receivingTeam === 'home' ? teamName : opponentName} possession after kickoff return`);
+      setFieldPosition(playInput.endYard);
+      setDown(1);
+      setYardsToGo(10);
+      
+      // Close both modals
+      onKickoffReturnClose();
+      onPlayInputClose();
+      setPendingKickoffReturn(null);
+      setPlayInput(null);
+      
+      setFeedback({ status: 'success', message: `Kickoff return recorded` });
+    } catch (error) {
+      console.error('Failed to record kickoff return', error);
+      setFeedback({ status: 'error', message: 'Unable to record kickoff return. Try again.' });
+    }
   };
 
   // New play flow: button click -> open modal for player + yards
   const initiatePlay = (type: PlayType, defaultYards: number = 0, category?: string) => {
-    // If clicking Run or Pass from offense, just set the play type
+    // If clicking Run from offense, just set the play type
     if (category === 'offense') {
       if (type === PlayType.RUSH) {
         setSelectedPlayType('run');
-      } else if (type === PlayType.PASS_COMPLETE) {
-        setSelectedPlayType('pass');
       }
       return;
     }
@@ -740,15 +1243,19 @@ const ScoringScreen: React.FC = () => {
     // Check if this is a pass play outcome or run play outcome
     const isPassPlay = action?.category === 'pass-outcome';
     const isRunPlay = action?.category === 'run-outcome';
+    const isCompletePass = type === PlayType.PASS_COMPLETE || type === PlayType.PASS_TD;
     
     setPlayInput({
       type,
       player: isRunPlay ? lastRusher : null, // Pre-fill last rusher for run plays
-      passer: null,
-      receiver: null,
+      passer: isPassPlay ? lastPasser : null, // Pre-fill last passer for pass plays
+      receiver: (isPassPlay && isCompletePass) ? lastReceiver : null, // Pre-fill last receiver for complete passes
+      defensivePlayer: null, // Will be selected for INTs, sacks (later)
       yards: defaultYards,
       startYard: fieldPosition,
+      interceptionYard: fieldPosition, // Initialize to same as start
       endYard: fieldPosition + defaultYards,
+      side: possession, // Track which team is making the play
     });
     onPlayInputOpen();
   };
@@ -763,20 +1270,43 @@ const ScoringScreen: React.FC = () => {
   };
 
   const submitPlay = async () => {
-    if (!playInput || !game || !teamId || !activeSeasonId) return;
+    if (!playInput || !game || !teamId || !activeSeasonId) {
+      return;
+    }
 
     const action = quickActions.find(a => a.type === playInput.type);
     const points = action && 'points' in action ? action.points : 0;
     const isPassPlay = action?.category === 'pass-outcome';
     const isCompletePass = playInput.type === PlayType.PASS_COMPLETE || playInput.type === PlayType.PASS_TD;
+    const isPassTD = playInput.type === PlayType.PASS_TD;
+    const isRushTD = playInput.type === PlayType.RUSH_TD;
+    const isTouchdown = isPassTD || isRushTD;
+    const isInterception = playInput.type === PlayType.INTERCEPTION;
+    const isKickoff = playInput.type === PlayType.KICKOFF;
     
-    const actualYards = playInput.startYard === playInput.endYard ? 0 : (playInput.endYard - playInput.startYard);
+    // For TDs (both pass and rush), calculate yardage to goal line automatically
+    let actualYards: number;
+    if (isPassTD || isRushTD) {
+      // Home team goes toward 100 (away goal), away team goes toward 0 (home goal)
+      if (playInput.side === 'home') {
+        actualYards = 100 - playInput.startYard; // Distance to away goal (100)
+      } else {
+        actualYards = playInput.startYard - 0; // Distance to home goal (0)
+      }
+    } else {
+      actualYards = playInput.startYard === playInput.endYard ? 0 : (playInput.endYard - playInput.startYard);
+    }
     
     // Determine which player to use for the play
     let finalPlayerId: string;
     let playerName: string;
     
-    if (isPassPlay) {
+    if (isInterception) {
+      // For interceptions, the QB is the primary player (gets the INT against them)
+      // The defensive player who made the INT is in participants
+      finalPlayerId = playInput.passer?.id || 'team-placeholder-player';
+      playerName = `${playInput.passer?.name} intercepted by ${playInput.defensivePlayer?.name}`;
+    } else if (isPassPlay) {
       // For pass plays, use passer as primary player
       finalPlayerId = playInput.passer?.id || 'team-placeholder-player';
       playerName = playInput.passer?.name || 'Team';
@@ -795,15 +1325,48 @@ const ScoringScreen: React.FC = () => {
     const driveElapsed = Math.max(0, possessionClockStart - timeRemaining);
     const driveLabel = ` (Drive TOP ${formatTop(driveElapsed)})`;
 
+    // Build participants array based on play type
+    const participants: any[] = [];
+    if (isInterception) {
+      // For interceptions: QB who threw it and defensive player who caught it
+      if (playInput.passer) {
+        participants.push({ playerId: playInput.passer.id, role: 'passer' });
+      }
+      if (playInput.defensivePlayer) {
+        participants.push({ playerId: playInput.defensivePlayer.id, role: 'interceptor' });
+      }
+    } else if (isPassPlay) {
+      if (playInput.passer) {
+        participants.push({ playerId: playInput.passer.id, role: 'passer' });
+      }
+      if (isCompletePass && playInput.receiver) {
+        participants.push({ playerId: playInput.receiver.id, role: 'receiver' });
+      }
+    } else if (playInput.player) {
+      participants.push({ playerId: playInput.player.id, role: 'rusher' });
+    }
+
+    // Build play description based on type
+    let playDescription: string;
+    if (isInterception) {
+      const passDistance = Math.abs(playInput.interceptionYard - playInput.startYard);
+      const returnDistance = Math.abs(playInput.endYard - playInput.interceptionYard);
+      const isReturnTD = playInput.endYard === 0 || playInput.endYard === 100;
+      
+      playDescription = `${playerName} - Pass ${passDistance}yd, returned ${returnDistance}yd${isReturnTD ? ' for TOUCHDOWN' : ''}${driveLabel}`;
+    } else {
+      playDescription = actualYards === 0
+        ? `${playerName} - ${playInput.type} for no gain${driveLabel}`
+        : `${playerName} - ${playInput.type} for ${actualYards} yards${driveLabel}`;
+    }
+
     const play: Play = {
       id: uuidv4(),
       type: playInput.type,
       yards: actualYards,
       playerId: finalPlayerId,
-      description:
-        actualYards === 0
-          ? `${playerName} - ${playInput.type} for no gain${driveLabel}`
-          : `${playerName} - ${playInput.type} for ${actualYards} yards${driveLabel}`,
+      participants: participants.length > 0 ? participants : undefined,
+      description: playDescription,
       timestamp: Timestamp.now(),
       quarter: currentQuarter,
       down,
@@ -813,15 +1376,91 @@ const ScoringScreen: React.FC = () => {
     };
 
     try {
-      const nextGame = addPlayAndRecalc(game, play);
+      let nextGame = addPlayAndRecalc(game, play);
       setHistory((prev) => [...prev, game]);
+      
+      // For touchdowns, add 6 points to the scoreboard
+      if (isTouchdown) {
+        if (side === 'home') {
+          nextGame = { ...nextGame, homeScore: (nextGame.homeScore || 0) + 6 };
+        } else {
+          nextGame = { ...nextGame, oppScore: (nextGame.oppScore || 0) + 6 };
+        }
+      }
+      
+      // Handle interception possession change - prompt for time first
+      if (isInterception) {
+        // Store the play and game state, then prompt for time
+        setPendingInterception({ play, nextGame });
+        // Pre-fill clock with current time
+        setClockMinutes(Math.floor(timeRemaining / 60));
+        setClockSeconds(timeRemaining % 60);
+        onInterceptionTimeOpen();
+        // Don't close the play input modal yet, will close after time is recorded
+        return;
+      }
+      
+      // Handle touchdown - prompt for extra point/2PT conversion
+      if (isTouchdown) {
+        // Save the game with the TD
+        setGame(nextGame);
+        await saveGame(nextGame, { teamId, seasonId: activeSeasonId });
+        
+        // Store the game state and trigger extra point modal
+        setPendingExtraPoint({ scoringTeam: side, tdGame: nextGame });
+        setExtraPointType(null);
+        setExtraPointPlayer(null);
+        setExtraPointSearch('');
+        onExtraPointOpen();
+        
+        // Don't close play input modal yet
+        return;
+      }
+      
+      // Handle kickoff - prompt for return player
+      if (isKickoff) {
+        // Save the kickoff play
+        setGame(nextGame);
+        await saveGame(nextGame, { teamId, seasonId: activeSeasonId });
+        
+        // Store kickoff data and trigger return modal
+        const receivingTeam = side === 'home' ? 'away' : 'home';
+        setPendingKickoffReturn({
+          kickPlay: play,
+          kickEndYard: playInput.endYard,
+          kickingTeam: side,
+          kickGame: nextGame
+        });
+        setKickoffReturner(null);
+        setKickoffReturnSearch('');
+        
+        // Initialize return yard display in PL/CT format
+        const kickEndPlCt = convertToPlCt(playInput.endYard);
+        setReturnYardSide(kickEndPlCt.side);
+        setReturnYardValue(kickEndPlCt.value.toString());
+        setShowReturnYardPad(false);
+        
+        onKickoffReturnOpen();
+        
+        // Don't close play input modal yet
+        return;
+      }
+      
+      // For non-interception plays, save immediately
       setGame(nextGame);
       await saveGame(nextGame, { teamId, seasonId: activeSeasonId });
       
       // Update ball position
-      setFieldPosition(playInput.endYard);
+      // For TDs (pass or rush), set to opponent's goal line
+      if (isPassTD || isRushTD) {
+        // Home team scores at 100, away team scores at 0
+        const goalLine = playInput.side === 'home' ? 100 : 0;
+        setFieldPosition(goalLine);
+      } else {
+        setFieldPosition(playInput.endYard);
+      }
       
-      // Update down and distance logic (turnover on downs if 4th and failed)
+      // Normal down and distance logic (turnover on downs if 4th and failed)
       if (actualYards >= yardsToGo) {
         setDown(1);
         setYardsToGo(10);
@@ -853,13 +1492,20 @@ const ScoringScreen: React.FC = () => {
           setYardsToGo(yardsToGo - actualYards);
         }
       }
+      setFeedback({ status: 'success', message: `${playInput.type} recorded${points ? ` (+${points} pts)` : ''}.` });
       
-      // Remember last rusher for run plays
-      if (!isPassPlay && playInput.player) {
+      // Remember last players for pre-filling next time
+      if (isPassPlay) {
+        if (playInput.passer) {
+          setLastPasser(playInput.passer);
+        }
+        if (isCompletePass && playInput.receiver) {
+          setLastReceiver(playInput.receiver);
+        }
+      } else if (playInput.player) {
         setLastRusher(playInput.player);
       }
       
-      setFeedback({ status: 'success', message: `${playInput.type} recorded${points ? ` (+${points} pts)` : ''}.` });
       onPlayInputClose();
       setPlayInput(null);
       setSelectedPlayType(null); // Reset play type selection
@@ -1196,7 +1842,18 @@ const ScoringScreen: React.FC = () => {
                 <Text fontSize="md" fontWeight="700" color="yellow.400" textTransform="uppercase">
                   {formatQuarterLabel(currentQuarter)}
                 </Text>
-                <Text fontSize="5xl" fontWeight="900" color="white" fontFamily="mono" lineHeight="1">
+                <Text 
+                  fontSize="5xl" 
+                  fontWeight="900" 
+                  color="white" 
+                  fontFamily="mono" 
+                  lineHeight="1"
+                  cursor="pointer"
+                  onClick={openClockAdjustment}
+                  _hover={{ color: 'yellow.400', transform: 'scale(1.05)' }}
+                  transition="all 0.2s"
+                  title="Click to adjust time"
+                >
                   {formatClock(timeRemaining)}
                 </Text>
                 <Stack direction="row" gap={2} mt={2}>
@@ -1388,7 +2045,7 @@ const ScoringScreen: React.FC = () => {
                       borderColor="whiteAlpha.700"
                       color="yellow.300"
                       _hover={{ bg: 'whiteAlpha.200' }}
-                      onClick={() => setManualBallSpot(fieldPosition + 1)}
+                      onClick={advanceBall}
                       aria-label="Advance ball"
                     >
                       +
@@ -1406,9 +2063,8 @@ const ScoringScreen: React.FC = () => {
                       borderColor="whiteAlpha.700"
                       color="yellow.300"
                       _hover={{ bg: 'whiteAlpha.200' }}
-                      onClick={() => setManualBallSpot(fieldPosition - 1)}
+                      onClick={retreatBall}
                       aria-label="Retreat ball"
-                      disabled={fieldPosition <= 0}
                     >
                       -
                     </Button>
@@ -1517,6 +2173,7 @@ const ScoringScreen: React.FC = () => {
           <Box>
             <Text fontSize="sm" fontWeight="600" mb={2} color="yellow.400" textTransform="uppercase">⚡ Offense</Text>
             <Grid templateColumns={{ base: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }} gap={2}>
+              {/* Run button */}
               {quickActions.filter(a => a.category === 'offense').map((action) => (
                 <Button
                   key={action.label}
@@ -1530,13 +2187,31 @@ const ScoringScreen: React.FC = () => {
                   onClick={() => initiatePlay(action.type, action.yards, action.category)}
                   size="md"
                   fontWeight="700"
-                  variant={selectedPlayType === (action.label === 'Run' ? 'run' : 'pass') ? 'solid' : 'outline'}
-                  borderColor={selectedPlayType === (action.label === 'Run' ? 'run' : 'pass') ? 'yellow.400' : 'transparent'}
+                  variant={selectedPlayType === 'run' ? 'solid' : 'outline'}
+                  borderColor={selectedPlayType === 'run' ? 'yellow.400' : 'transparent'}
                   borderWidth="2px"
                 >
                   {action.label}
                 </Button>
               ))}
+              {/* Pass button - added manually */}
+              <Button
+                bg="blue.600"
+                color="white"
+                _hover={{ 
+                  bg: 'blue.500',
+                  transform: 'scale(1.05)'
+                }}
+                transition="all 0.2s"
+                onClick={() => setSelectedPlayType('pass')}
+                size="md"
+                fontWeight="700"
+                variant={selectedPlayType === 'pass' ? 'solid' : 'outline'}
+                borderColor={selectedPlayType === 'pass' ? 'yellow.400' : 'transparent'}
+                borderWidth="2px"
+              >
+                Pass
+              </Button>
             </Grid>
           </Box>
 
@@ -1817,7 +2492,9 @@ const ScoringScreen: React.FC = () => {
           >
             <Stack gap={0}>
               <Box px={6} py={4} borderBottom="1px solid" borderColor="border.subtle">
-                <Text fontSize="xl" fontWeight="600">Select Player</Text>
+                <Text fontSize="xl" fontWeight="600">
+                  Select Player - {playInput?.side === 'away' ? opponentName : team?.name || 'Home'}
+                </Text>
               </Box>
               <Box px={6} py={4} overflowY="auto" maxH="60vh">
                 <Stack gap={4}>
@@ -1834,9 +2511,9 @@ const ScoringScreen: React.FC = () => {
                     </Text>
                   ) : (
                     <SimpleGrid columns={{ base: 2, md: 3 }} gap={3}>
-                      {filteredRoster.map((player) => (
+                      {filteredRoster.map((player, idx) => (
                         <Button
-                          key={player.id}
+                          key={`quickadd-${player.id}-${idx}`}
                           onClick={() => handlePlayerSelect(player)}
                           h="auto"
                           py={3}
@@ -1991,7 +2668,27 @@ const ScoringScreen: React.FC = () => {
       )}
 
       {/* Play Input Modal - New Flow */}
-      {isPlayInputOpen && playInput && (
+      {isPlayInputOpen && playInput && (() => {
+        const action = quickActions.find(a => a.type === playInput.type);
+        const isPassPlay = action?.category === 'pass-outcome';
+        const isCompletePass = playInput.type === PlayType.PASS_COMPLETE || playInput.type === PlayType.PASS_TD;
+        const isPassTD = playInput.type === PlayType.PASS_TD;
+        const isRushTD = playInput.type === PlayType.RUSH_TD;
+        const isIncompletePass = playInput.type === PlayType.PASS_INCOMPLETE;
+        const isSack = playInput.type === PlayType.SACK;
+        const isInterception = playInput.type === PlayType.INTERCEPTION;
+        
+        // Check if we need player selection
+        const needsPasser = isPassPlay && !playInput.passer;
+        const needsDefensivePlayer = isInterception && !playInput.defensivePlayer;
+        const needsReceiver = isPassPlay && isCompletePass && !playInput.receiver;
+        const needsPlayer = !isPassPlay && !playInput.player;
+        const showPlayerSelection = needsPasser || needsDefensivePlayer || needsReceiver || needsPlayer;
+        
+        // For incomplete passes and TDs (pass or rush), skip yards adjustment
+        const skipYardsAdjustment = isIncompletePass || isPassTD || isRushTD;
+        
+        return (
         <Portal>
           <Box
             position="fixed"
@@ -2001,7 +2698,13 @@ const ScoringScreen: React.FC = () => {
             bottom={0}
             bg="blackAlpha.700"
             zIndex={1000}
-            onClick={() => { onPlayInputClose(); setPlayInput(null); }}
+            onClick={() => { 
+              onPlayInputClose(); 
+              setPlayInput(null); 
+              setJerseySearch('');
+              setPasserSearch('');
+              setReceiverSearch('');
+            }}
           />
           <Box
             position="fixed"
@@ -2013,33 +2716,96 @@ const ScoringScreen: React.FC = () => {
             boxShadow="0 8px 32px rgba(0, 0, 0, 0.5)"
             border="3px solid"
             borderColor="yellow.400"
-            maxW="600px"
+            maxW={showPlayerSelection ? "600px" : "500px"}
             w="90%"
+            maxH="90vh"
+            overflowY="auto"
             zIndex={1001}
             onClick={(e) => e.stopPropagation()}
           >
             <Stack gap={0}>
               <Box px={6} py={4} borderBottom="2px solid" borderColor="yellow.400">
-                <Text fontSize="xl" fontWeight="700" color="white">Record Play: {playInput.type}</Text>
+                <Text fontSize="xl" fontWeight="700" color="white">
+                  {showPlayerSelection ? 'Select Players' : 
+                   skipYardsAdjustment ? (isPassTD ? 'Record Touchdown Pass' : isRushTD ? 'Record Rushing Touchdown' : 'Record Incomplete Pass') : 
+                   isSack ? 'Adjust Sack Yardage' : 
+                   isInterception ? 'Interception Return Yards' : 
+                   'Adjust Yards'}
+                </Text>
+                {!showPlayerSelection && (
+                  <Stack direction="row" gap={2} mt={2} flexWrap="wrap">
+                    {playInput.passer && (
+                      <Badge 
+                        colorScheme="blue" 
+                        fontSize="sm" 
+                        cursor="pointer"
+                        px={3}
+                        py={1}
+                        _hover={{ bg: 'blue.600', transform: 'scale(1.05)' }}
+                        transition="all 0.2s"
+                        onClick={() => {
+                          setPlayInput({...playInput, passer: null});
+                          setPasserSearch('');
+                        }}
+                        title="Click to change passer"
+                      >
+                        QB: #{playInput.passer.jerseyNumber} {playInput.passer.name} ✎
+                      </Badge>
+                    )}
+                    {playInput.receiver && (
+                      <Badge 
+                        colorScheme="green" 
+                        fontSize="sm"
+                        cursor="pointer"
+                        px={3}
+                        py={1}
+                        _hover={{ bg: 'green.600', transform: 'scale(1.05)' }}
+                        transition="all 0.2s"
+                        onClick={() => {
+                          setPlayInput({...playInput, receiver: null});
+                          setReceiverSearch('');
+                        }}
+                        title="Click to change receiver"
+                      >
+                        WR: #{playInput.receiver.jerseyNumber} {playInput.receiver.name} ✎
+                      </Badge>
+                    )}
+                    {playInput.player && (
+                      <Badge 
+                        colorScheme="yellow" 
+                        fontSize="sm"
+                        cursor="pointer"
+                        px={3}
+                        py={1}
+                        _hover={{ bg: 'yellow.600', transform: 'scale(1.05)' }}
+                        transition="all 0.2s"
+                        onClick={() => {
+                          setPlayInput({...playInput, player: null});
+                          setJerseySearch('');
+                        }}
+                        title="Click to change player"
+                      >
+                        #{playInput.player.jerseyNumber} {playInput.player.name} ✎
+                      </Badge>
+                    )}
+                  </Stack>
+                )}
               </Box>
               <Box px={6} py={6}>
                 <Stack gap={4}>
-                  {/* Determine if this is a pass play */}
-                  {(() => {
-                    const action = quickActions.find(a => a.type === playInput.type);
-                    const isPassPlay = action?.category === 'pass-outcome';
-                    const isCompletePass = playInput.type === PlayType.PASS_COMPLETE || playInput.type === PlayType.PASS_TD;
-                    
-                    return (
-                      <>
-                        {/* Passer Selection - For pass plays only */}
-                        {isPassPlay && (
+                  {showPlayerSelection ? (
+                    // PLAYER SELECTION MODE
+                    <>
+                      {/* Passer Selection - For pass plays only */}
+                      {needsPasser && (
                           <Box>
-                            <Text fontSize="sm" fontWeight="600" color="blue.400" mb={2}>Select Passer (Required)</Text>
+                            <Text fontSize="sm" fontWeight="600" color="blue.400" mb={2}>
+                              {isSack ? 'Select QB (Required)' : 'Select Passer (Required)'} {playInput.passer && `✓ #${playInput.passer.jerseyNumber} ${playInput.passer.name}`}
+                            </Text>
                         <Input
                           placeholder="Search by jersey # or name..."
-                          value={jerseySearch}
-                          onChange={(e) => setJerseySearch(e.target.value)}
+                          value={passerSearch}
+                          onChange={(e) => setPasserSearch(e.target.value)}
                           bg="rgba(0, 0, 0, 0.4)"
                           borderColor="gray.600"
                           color="white"
@@ -2048,16 +2814,19 @@ const ScoringScreen: React.FC = () => {
                           inputMode="numeric"
                           pattern="[0-9]*"
                         />
-                            {filteredRoster.length === 0 ? (
+                            {filteredPassers.length === 0 ? (
                               <Text textAlign="center" color="gray.400" py={4}>
                                 No players found
                               </Text>
                             ) : (
                               <SimpleGrid columns={{ base: 2, md: 3 }} gap={2} maxH="200px" overflowY="auto">
-                                {filteredRoster.map((player) => (
+                                {filteredPassers.map((player, idx) => (
                                   <Button
-                                    key={player.id}
-                                    onClick={() => setPlayInput({...playInput, passer: player})}
+                                    key={`passer-${player.id}-${idx}`}
+                                    onClick={() => {
+                                      setPlayInput({...playInput, passer: player});
+                                      setPasserSearch(''); // Clear search after selection
+                                    }}
                                     h="auto"
                                     py={2}
                                     flexDirection="column"
@@ -2080,30 +2849,37 @@ const ScoringScreen: React.FC = () => {
                           </Box>
                         )}
 
-                        {/* Receiver Selection - For complete passes only */}
+                        {/* Receiver Selection - For complete passes (required) */}
                         {isPassPlay && isCompletePass && (
                           <Box>
-                            <Text fontSize="sm" fontWeight="600" color="green.400" mb={2}>Select Receiver (Required)</Text>
+                            <Text fontSize="sm" fontWeight="600" color="green.400" mb={2}>
+                              Select Receiver (Required) {playInput.receiver && `✓ #${playInput.receiver.jerseyNumber} ${playInput.receiver.name}`}
+                            </Text>
                             <Input
                               placeholder="Search by jersey # or name..."
-                              value={jerseySearch}
-                              onChange={(e) => setJerseySearch(e.target.value)}
+                              value={receiverSearch}
+                              onChange={(e) => setReceiverSearch(e.target.value)}
                               bg="rgba(0, 0, 0, 0.4)"
                               borderColor="gray.600"
                               color="white"
                               _placeholder={{ color: 'gray.400' }}
                               mb={3}
+                              inputMode="numeric"
+                              pattern="[0-9]*"
                             />
-                            {filteredRoster.length === 0 ? (
+                            {filteredReceivers.length === 0 ? (
                               <Text textAlign="center" color="gray.400" py={4}>
                                 No players found
                               </Text>
                             ) : (
                               <SimpleGrid columns={{ base: 2, md: 3 }} gap={2} maxH="200px" overflowY="auto">
-                                {filteredRoster.map((player) => (
+                                {filteredReceivers.map((player, idx) => (
                                   <Button
-                                    key={player.id}
-                                    onClick={() => setPlayInput({...playInput, receiver: player})}
+                                    key={`receiver-${player.id}-${idx}`}
+                                    onClick={() => {
+                                      setPlayInput({...playInput, receiver: player});
+                                      setReceiverSearch(''); // Clear search after selection
+                                    }}
                                     h="auto"
                                     py={2}
                                     flexDirection="column"
@@ -2123,6 +2899,131 @@ const ScoringScreen: React.FC = () => {
                                 ))}
                               </SimpleGrid>
                             )}
+                          </Box>
+                        )}
+
+                        {/* Receiver Selection - For incomplete passes (optional) */}
+                        {isPassPlay && isIncompletePass && (
+                          <Box>
+                            <Text fontSize="sm" fontWeight="600" color="gray.400" mb={2}>
+                              Select Target/Receiver (Optional) {playInput.receiver && `✓ #${playInput.receiver.jerseyNumber} ${playInput.receiver.name}`}
+                            </Text>
+                            <Input
+                              placeholder="Search by jersey # or name..."
+                              value={receiverSearch}
+                              onChange={(e) => setReceiverSearch(e.target.value)}
+                              bg="rgba(0, 0, 0, 0.4)"
+                              borderColor="gray.600"
+                              color="white"
+                              _placeholder={{ color: 'gray.400' }}
+                              mb={3}
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                            />
+                            {filteredReceivers.length === 0 ? (
+                              <Text textAlign="center" color="gray.400" py={4}>
+                                No players found
+                              </Text>
+                            ) : (
+                              <SimpleGrid columns={{ base: 2, md: 3 }} gap={2} maxH="200px" overflowY="auto">
+                                {filteredReceivers.map((player, idx) => (
+                                  <Button
+                                    key={`incomplete-receiver-${player.id}-${idx}`}
+                                    onClick={() => {
+                                      setPlayInput({...playInput, receiver: player});
+                                      setReceiverSearch(''); // Clear search after selection
+                                    }}
+                                    h="auto"
+                                    py={2}
+                                    flexDirection="column"
+                                    variant="outline"
+                                    borderColor={playInput.receiver?.id === player.id ? 'gray.400' : 'gray.600'}
+                                    bg={playInput.receiver?.id === player.id ? 'rgba(156, 163, 175, 0.2)' : 'rgba(0, 0, 0, 0.4)'}
+                                    color="white"
+                                    _hover={{ borderColor: 'gray.400', bg: 'rgba(156, 163, 175, 0.15)' }}
+                                  >
+                                    <Badge colorScheme="gray" mb={1}>
+                                      #{player.jerseyNumber}
+                                    </Badge>
+                                    <Text fontSize="sm" fontWeight="600">
+                                      {player.name}
+                                    </Text>
+                                  </Button>
+                                ))}
+                              </SimpleGrid>
+                            )}
+                          </Box>
+                        )}
+
+                        {/* Defensive Player Selection - For interceptions */}
+                        {isInterception && playInput.passer && (
+                          <Box>
+                            <Text fontSize="sm" fontWeight="600" color="purple.400" mb={2}>
+                              Select Defensive Player (Required) - Who intercepted the ball {playInput.defensivePlayer && `✓ #${playInput.defensivePlayer.jerseyNumber} ${playInput.defensivePlayer.name}`}
+                            </Text>
+                            <Input
+                              placeholder="Search by jersey # or name..."
+                              value={defenseSearch}
+                              onChange={(e) => setDefenseSearch(e.target.value)}
+                              bg="rgba(0, 0, 0, 0.4)"
+                              borderColor="gray.600"
+                              color="white"
+                              _placeholder={{ color: 'gray.400' }}
+                              mb={3}
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                            />
+                            {(() => {
+                              // Get opponent roster for defensive player selection
+                              const opposingRoster = playInput.side === 'home' 
+                                ? (opponent?.roster || [])
+                                : roster;
+                              
+                              const searchLower = defenseSearch.toLowerCase().trim();
+                              const filteredOpposingRoster = searchLower === ''
+                                ? opposingRoster
+                                : opposingRoster.filter((p: Player) =>
+                                    p.jerseyNumber?.toString() === searchLower ||
+                                    p.name.toLowerCase().includes(searchLower)
+                                  );
+                              
+                              const opposingTeamName = playInput.side === 'home' 
+                                ? opponent?.name 
+                                : teamName;
+                              
+                              return filteredOpposingRoster.length === 0 ? (
+                                <Text textAlign="center" color="gray.400" py={4}>
+                                  No players found on {opposingTeamName}
+                                </Text>
+                              ) : (
+                                <SimpleGrid columns={{ base: 2, md: 3 }} gap={2} maxH="200px" overflowY="auto">
+                                  {filteredOpposingRoster.map((player: Player, idx: number) => (
+                                    <Button
+                                      key={`defense-${player.id}-${idx}`}
+                                      onClick={() => {
+                                        setPlayInput({...playInput, defensivePlayer: player});
+                                        setDefenseSearch(''); // Clear search after selection
+                                      }}
+                                      h="auto"
+                                      py={2}
+                                      flexDirection="column"
+                                      variant="outline"
+                                      borderColor={playInput.defensivePlayer?.id === player.id ? 'purple.400' : 'gray.600'}
+                                      bg={playInput.defensivePlayer?.id === player.id ? 'rgba(168, 85, 247, 0.2)' : 'rgba(0, 0, 0, 0.4)'}
+                                      color="white"
+                                      _hover={{ borderColor: 'purple.400', bg: 'rgba(168, 85, 247, 0.15)' }}
+                                    >
+                                      <Badge colorScheme="purple" mb={1}>
+                                        #{player.jerseyNumber}
+                                      </Badge>
+                                      <Text fontSize="sm" fontWeight="600">
+                                        {player.name}
+                                      </Text>
+                                    </Button>
+                                  ))}
+                                </SimpleGrid>
+                              );
+                            })()}
                           </Box>
                         )}
 
@@ -2173,9 +3074,9 @@ const ScoringScreen: React.FC = () => {
                               </Text>
                             ) : (
                               <SimpleGrid columns={{ base: 2, md: 3 }} gap={2} maxH="200px" overflowY="auto">
-                                {filteredRoster.map((player) => (
+                                {filteredRoster.map((player, idx) => (
                                   <Button
-                                    key={player.id}
+                                    key={`player-${player.id}-${idx}`}
                                     onClick={() => setPlayInput({...playInput, player})}
                                     h="auto"
                                     py={2}
@@ -2199,87 +3100,257 @@ const ScoringScreen: React.FC = () => {
                           </Box>
                         )}
                       </>
-                    );
-                  })()}
-
-                  {/* Yard Input */}
-                  <Box>
-                    <Text fontSize="sm" fontWeight="600" color="yellow.400" mb={2}>Play Result (Yards)</Text>
-                    <Stack direction="row" gap={2} align="center">
-                      <Text color="white" fontSize="sm" minW="80px">Start:</Text>
-                      <HStack>
-                        <Button size="sm" variant="outline" borderColor="whiteAlpha.700" color="yellow.300" _hover={{ bg: 'whiteAlpha.200' }} onClick={() => setPlayStart(playInput.startYard - 1)} aria-label="Decrease start">-</Button>
-                        <Box
-                          w="100px"
-                          px={3}
-                          py={2}
-                          bg="rgba(0, 0, 0, 0.5)"
-                          border="1px solid"
-                          borderColor="gray.600"
-                          borderRadius="md"
-                          color="white"
-                          fontWeight="700"
-                          fontFamily="mono"
-                          textAlign="center"
-                        >
-                          {formatBallDisplay(
-                            playInput.startYard,
-                            team?.shortName || teamName.substring(0, 2).toUpperCase(),
-                            opponent?.shortName || opponentName.substring(0, 2).toUpperCase()
+                    ) : skipYardsAdjustment ? (
+                    // INCOMPLETE PASS OR TD - No yards adjustment needed
+                    <Box>
+                      {isPassTD ? (
+                        <>
+                          <Text fontSize="md" fontWeight="600" color="green.400" mb={4} textAlign="center">
+                            🏈 Touchdown Pass - Ready to Record
+                          </Text>
+                          <Text fontSize="sm" color="gray.400" textAlign="center" mb={2}>
+                            {playInput.passer?.name} to {playInput.receiver?.name}
+                          </Text>
+                          <Text fontSize="sm" color="green.400" textAlign="center">
+                            +6 points • Yardage calculated to goal line
+                          </Text>
+                        </>
+                      ) : isRushTD ? (
+                        <>
+                          <Text fontSize="md" fontWeight="600" color="green.400" mb={4} textAlign="center">
+                            🏈 Rushing Touchdown - Ready to Record
+                          </Text>
+                          <Text fontSize="sm" color="gray.400" textAlign="center" mb={2}>
+                            {playInput.player?.name}
+                          </Text>
+                          <Text fontSize="sm" color="green.400" textAlign="center">
+                            +6 points • Yardage calculated to goal line
+                          </Text>
+                        </>
+                      ) : (
+                        <>
+                          <Text fontSize="md" fontWeight="600" color="white" mb={4} textAlign="center">
+                            Incomplete Pass - Ready to Record
+                          </Text>
+                          <Text fontSize="sm" color="gray.400" textAlign="center">
+                            No yards gained. Down will advance automatically.
+                          </Text>
+                        </>
+                      )}
+                    </Box>
+                    ) : (
+                    // YARD ADJUSTMENT MODE
+                    <Box>
+                      {isInterception ? (
+                        // THREE-POINT SYSTEM FOR INTERCEPTIONS
+                        <>
+                          <Text fontSize="sm" fontWeight="600" color="purple.400" mb={3} textAlign="center">
+                            Interception Return - Three Points
+                          </Text>
+                          
+                          {/* 1. Line of Scrimmage (Start) */}
+                          <Stack direction="row" gap={2} align="center" mb={3}>
+                            <Text color="white" fontSize="sm" minW="120px">Line of Scrimmage:</Text>
+                            <HStack>
+                              <Button size="sm" variant="outline" borderColor="whiteAlpha.700" color="yellow.300" _hover={{ bg: 'whiteAlpha.200' }} onClick={() => setPlayStart(playInput.startYard - 1)} aria-label="Decrease start">-</Button>
+                              <Box
+                                w="100px"
+                                px={3}
+                                py={2}
+                                bg="rgba(0, 0, 0, 0.5)"
+                                border="1px solid"
+                                borderColor="gray.600"
+                                borderRadius="md"
+                                color="white"
+                                fontWeight="700"
+                                fontFamily="mono"
+                                textAlign="center"
+                              >
+                                {formatBallDisplay(
+                                  playInput.startYard,
+                                  team?.shortName || teamName.substring(0, 2).toUpperCase(),
+                                  opponent?.shortName || opponentName.substring(0, 2).toUpperCase()
+                                )}
+                              </Box>
+                              <Button size="sm" variant="outline" borderColor="whiteAlpha.700" color="yellow.300" _hover={{ bg: 'whiteAlpha.200' }} onClick={() => setPlayStart(playInput.startYard + 1)} aria-label="Increase start">+</Button>
+                            </HStack>
+                          </Stack>
+                          
+                          {/* 2. Interception Point */}
+                          <Stack direction="row" gap={2} align="center" mb={3}>
+                            <Text color="white" fontSize="sm" minW="120px">Intercepted At:</Text>
+                            <HStack>
+                              <Button 
+                                size="sm" 
+                                variant="outline" 
+                                borderColor="whiteAlpha.700" 
+                                color="purple.300" 
+                                _hover={{ bg: 'whiteAlpha.200' }} 
+                                onClick={() => setPlayInput({...playInput, interceptionYard: playInput.interceptionYard - 1})} 
+                                aria-label="Decrease interception point"
+                              >-</Button>
+                              <Box
+                                w="100px"
+                                px={3}
+                                py={2}
+                                bg="rgba(0, 0, 0, 0.5)"
+                                border="1px solid"
+                                borderColor="purple.600"
+                                borderRadius="md"
+                                color="purple.300"
+                                fontWeight="700"
+                                fontFamily="mono"
+                                textAlign="center"
+                              >
+                                {formatBallDisplay(
+                                  playInput.interceptionYard,
+                                  team?.shortName || teamName.substring(0, 2).toUpperCase(),
+                                  opponent?.shortName || opponentName.substring(0, 2).toUpperCase()
+                                )}
+                              </Box>
+                              <Button 
+                                size="sm" 
+                                variant="outline" 
+                                borderColor="whiteAlpha.700" 
+                                color="purple.300" 
+                                _hover={{ bg: 'whiteAlpha.200' }} 
+                                onClick={() => setPlayInput({...playInput, interceptionYard: playInput.interceptionYard + 1})} 
+                                aria-label="Increase interception point"
+                              >+</Button>
+                            </HStack>
+                          </Stack>
+                          
+                          {/* 3. Return End */}
+                          <Stack direction="row" gap={2} align="center" mb={3}>
+                            <Text color="white" fontSize="sm" minW="120px">Tackled/Scored At:</Text>
+                            <HStack>
+                              <Button size="sm" variant="outline" borderColor="whiteAlpha.700" color="yellow.300" _hover={{ bg: 'whiteAlpha.200' }} onClick={() => setPlayEnd(playInput.endYard - 1)} aria-label="Decrease end">-</Button>
+                              <Box
+                                w="100px"
+                                px={3}
+                                py={2}
+                                bg="rgba(0, 0, 0, 0.5)"
+                                border="1px solid"
+                                borderColor="gray.600"
+                                borderRadius="md"
+                                color="white"
+                                fontWeight="700"
+                                fontFamily="mono"
+                                textAlign="center"
+                              >
+                                {formatBallDisplay(
+                                  playInput.endYard,
+                                  team?.shortName || teamName.substring(0, 2).toUpperCase(),
+                                  opponent?.shortName || opponentName.substring(0, 2).toUpperCase()
+                                )}
+                              </Box>
+                              <Button size="sm" variant="outline" borderColor="whiteAlpha.700" color="yellow.300" _hover={{ bg: 'whiteAlpha.200' }} onClick={() => setPlayEnd(playInput.endYard + 1)} aria-label="Increase end">+</Button>
+                            </HStack>
+                          </Stack>
+                          
+                          {/* Yardage Summary */}
+                          <Box mt={4} p={3} bg="rgba(168, 85, 247, 0.1)" borderRadius="md" border="1px solid" borderColor="purple.600">
+                            <Text fontSize="xs" color="gray.400" mb={1}>Pass Distance: {Math.abs(playInput.interceptionYard - playInput.startYard)} yards</Text>
+                            <Text fontSize="xs" color="gray.400" mb={1}>Return Distance: {Math.abs(playInput.endYard - playInput.interceptionYard)} yards</Text>
+                            <Text fontSize="sm" color="purple.300" fontWeight="700">
+                              Total Play: {playInput.yards > 0 ? '+' : ''}{playInput.yards} yards
+                            </Text>
+                            {(playInput.endYard === 0 || playInput.endYard === 100) && (
+                              <Text fontSize="sm" color="green.400" fontWeight="700" mt={2}>
+                                🏈 INTERCEPTION RETURN TOUCHDOWN!
+                              </Text>
+                            )}
+                          </Box>
+                        </>
+                      ) : (
+                        // STANDARD TWO-POINT SYSTEM
+                        <>
+                          <Text fontSize="sm" fontWeight="600" color="yellow.400" mb={2}>
+                            {isSack ? 'Sack Yardage Loss' : 'Play Result (Yards)'}
+                          </Text>
+                          {isSack && (
+                            <Text fontSize="xs" color="red.400" mb={2}>
+                              Loss of yards counts against QB rushing stats
+                            </Text>
                           )}
-                        </Box>
-                        <Button size="sm" variant="outline" borderColor="whiteAlpha.700" color="yellow.300" _hover={{ bg: 'whiteAlpha.200' }} onClick={() => setPlayStart(playInput.startYard + 1)} aria-label="Increase start">+</Button>
-                      </HStack>
-                    </Stack>
-                    <Stack direction="row" gap={2} align="center" mt={2}>
-                      <Text color="white" fontSize="sm" minW="80px">End:</Text>
-                      <HStack>
-                        <Button size="sm" variant="outline" borderColor="whiteAlpha.700" color="yellow.300" _hover={{ bg: 'whiteAlpha.200' }} onClick={() => setPlayEnd(playInput.endYard - 1)} aria-label="Decrease end">-</Button>
-                        <Box
-                          w="100px"
-                          px={3}
-                          py={2}
-                          bg="rgba(0, 0, 0, 0.5)"
-                          border="1px solid"
-                          borderColor="gray.600"
-                          borderRadius="md"
-                          color="white"
-                          fontWeight="700"
-                          fontFamily="mono"
-                          textAlign="center"
-                        >
-                          {formatBallDisplay(
-                            playInput.endYard,
-                            team?.shortName || teamName.substring(0, 2).toUpperCase(),
-                            opponent?.shortName || opponentName.substring(0, 2).toUpperCase()
-                          )}
-                        </Box>
-                        <Button size="sm" variant="outline" borderColor="whiteAlpha.700" color="yellow.300" _hover={{ bg: 'whiteAlpha.200' }} onClick={() => setPlayEnd(playInput.endYard + 1)} aria-label="Increase end">+</Button>
-                      </HStack>
-                    </Stack>
-                    <Stack direction="row" gap={2} align="center" mt={2}>
-                      <Text color="white" fontSize="sm" minW="80px">Total:</Text>
-                      <HStack>
-                        <Button size="sm" variant="outline" borderColor="whiteAlpha.700" color="yellow.300" _hover={{ bg: 'whiteAlpha.200' }} onClick={() => setPlayYards(playInput.yards - 1)} aria-label="Decrease yards">-</Button>
-                        <Input
-                          type="number"
-                          value={playInput.yards}
-                          onChange={(e) => {
-                            const num = Number.isFinite(e.target.valueAsNumber) ? e.target.valueAsNumber : 0;
-                            setPlayYards(num);
-                          }}
-                          bg="rgba(0, 0, 0, 0.4)"
-                          borderColor="gray.600"
-                          color="white"
-                          w="100px"
-                        />
-                        <Button size="sm" variant="outline" borderColor="whiteAlpha.700" color="yellow.300" _hover={{ bg: 'whiteAlpha.200' }} onClick={() => setPlayYards(playInput.yards + 1)} aria-label="Increase yards">+</Button>
-                      </HStack>
-                    </Stack>
-                    <Text color="yellow.400" fontSize="md" fontWeight="700" mt={2}>
-                      Result: {playInput.yards > 0 ? '+' : ''}{playInput.yards} yards
-                    </Text>
+                        <Stack direction="row" gap={2} align="center">
+                          <Text color="white" fontSize="sm" minW="80px">Start:</Text>
+                          <HStack>
+                            <Button size="sm" variant="outline" borderColor="whiteAlpha.700" color="yellow.300" _hover={{ bg: 'whiteAlpha.200' }} onClick={() => setPlayStart(playInput.startYard - 1)} aria-label="Decrease start">-</Button>
+                            <Box
+                              w="100px"
+                              px={3}
+                              py={2}
+                              bg="rgba(0, 0, 0, 0.5)"
+                              border="1px solid"
+                              borderColor="gray.600"
+                              borderRadius="md"
+                              color="white"
+                              fontWeight="700"
+                              fontFamily="mono"
+                              textAlign="center"
+                            >
+                              {formatBallDisplay(
+                                playInput.startYard,
+                                team?.shortName || teamName.substring(0, 2).toUpperCase(),
+                                opponent?.shortName || opponentName.substring(0, 2).toUpperCase()
+                              )}
+                            </Box>
+                            <Button size="sm" variant="outline" borderColor="whiteAlpha.700" color="yellow.300" _hover={{ bg: 'whiteAlpha.200' }} onClick={() => setPlayStart(playInput.startYard + 1)} aria-label="Increase start">+</Button>
+                          </HStack>
+                        </Stack>
+                        <Stack direction="row" gap={2} align="center" mt={2}>
+                          <Text color="white" fontSize="sm" minW="80px">End:</Text>
+                          <HStack>
+                            <Button size="sm" variant="outline" borderColor="whiteAlpha.700" color="yellow.300" _hover={{ bg: 'whiteAlpha.200' }} onClick={() => setPlayEnd(playInput.endYard - 1)} aria-label="Decrease end">-</Button>
+                            <Box
+                              w="100px"
+                              px={3}
+                              py={2}
+                              bg="rgba(0, 0, 0, 0.5)"
+                              border="1px solid"
+                              borderColor="gray.600"
+                              borderRadius="md"
+                              color="white"
+                              fontWeight="700"
+                              fontFamily="mono"
+                              textAlign="center"
+                            >
+                              {formatBallDisplay(
+                                playInput.endYard,
+                                team?.shortName || teamName.substring(0, 2).toUpperCase(),
+                                opponent?.shortName || opponentName.substring(0, 2).toUpperCase()
+                              )}
+                            </Box>
+                            <Button size="sm" variant="outline" borderColor="whiteAlpha.700" color="yellow.300" _hover={{ bg: 'whiteAlpha.200' }} onClick={() => setPlayEnd(playInput.endYard + 1)} aria-label="Increase end">+</Button>
+                          </HStack>
+                        </Stack>
+                        <Stack direction="row" gap={2} align="center" mt={2}>
+                          <Text color="white" fontSize="sm" minW="80px">Total:</Text>
+                          <HStack>
+                            <Button size="sm" variant="outline" borderColor="whiteAlpha.700" color="yellow.300" _hover={{ bg: 'whiteAlpha.200' }} onClick={() => setPlayYards(playInput.yards - 1)} aria-label="Decrease yards">-</Button>
+                            <Input
+                              type="number"
+                              value={playInput.yards}
+                              onChange={(e) => {
+                                const num = Number.isFinite(e.target.valueAsNumber) ? e.target.valueAsNumber : 0;
+                                setPlayYards(num);
+                              }}
+                              bg="rgba(0, 0, 0, 0.4)"
+                              borderColor="gray.600"
+                              color="white"
+                              w="100px"
+                            />
+                            <Button size="sm" variant="outline" borderColor="whiteAlpha.700" color="yellow.300" _hover={{ bg: 'whiteAlpha.200' }} onClick={() => setPlayYards(playInput.yards + 1)} aria-label="Increase yards">+</Button>
+                          </HStack>
+                        </Stack>
+                        <Text color="yellow.400" fontSize="md" fontWeight="700" mt={2}>
+                          Result: {playInput.yards > 0 ? '+' : ''}{playInput.yards} yards
+                        </Text>
+                        </>
+                      )}
                   </Box>
+                  )}
                 </Stack>
               </Box>
               <Box px={6} py={4} borderTop="2px solid" borderColor="yellow.400">
@@ -2292,14 +3363,14 @@ const ScoringScreen: React.FC = () => {
                     flex={1}
                     fontWeight="700"
                     disabled={(() => {
-                      const action = quickActions.find(a => a.type === playInput.type);
-                      const isPassPlay = action?.category === 'pass-outcome';
-                      const isCompletePass = playInput.type === PlayType.PASS_COMPLETE || playInput.type === PlayType.PASS_TD;
-                      
                       if (isPassPlay) {
-                        // Pass plays require passer, and receiver if complete
+                        // Pass plays require passer
                         if (!playInput.passer) return true;
+                        // Interceptions require both passer and defensive player
+                        if (isInterception && !playInput.defensivePlayer) return true;
+                        // Complete passes require receiver
                         if (isCompletePass && !playInput.receiver) return true;
+                        // Incomplete passes and sacks: passer is enough, receiver is optional
                         return false;
                       } else {
                         // Run plays and others require player
@@ -2313,7 +3384,13 @@ const ScoringScreen: React.FC = () => {
                     bg="gray.700"
                     color="white"
                     _hover={{ bg: 'gray.600' }}
-                    onClick={() => { onPlayInputClose(); setPlayInput(null); setJerseySearch(''); }}
+                    onClick={() => { 
+                      onPlayInputClose(); 
+                      setPlayInput(null); 
+                      setJerseySearch('');
+                      setPasserSearch('');
+                      setReceiverSearch('');
+                    }}
                     flex={1}
                   >
                     Cancel
@@ -2323,10 +3400,11 @@ const ScoringScreen: React.FC = () => {
             </Stack>
           </Box>
         </Portal>
-      )}
+        );
+      })()}
 
-      {/* Timeout Modal */}
-      {isTimeoutOpen && timeoutTeam && (
+      {/* Quarter Change Confirmation Modal */}
+      {isQuarterChangeOpen && pendingQuarterChange && (
         <Portal>
           <Box
             position="fixed"
@@ -2336,81 +3414,651 @@ const ScoringScreen: React.FC = () => {
             bottom={0}
             bg="blackAlpha.700"
             zIndex={1000}
-            onClick={() => { onTimeoutClose(); setTimeoutTeam(null); setTimeoutTime(''); }}
+            onClick={() => {
+              onQuarterChangeClose();
+              setPendingQuarterChange(null);
+            }}
           />
           <Box
             position="fixed"
             top="50%"
             left="50%"
             transform="translate(-50%, -50%)"
-            bg="linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)"
+            bg="gray.900"
             borderRadius="xl"
             boxShadow="0 8px 32px rgba(0, 0, 0, 0.5)"
-            border="3px solid"
-            borderColor="yellow.400"
+            border="2px solid"
+            borderColor="blue.400"
             maxW="500px"
             w="90%"
             zIndex={1001}
             onClick={(e) => e.stopPropagation()}
           >
             <Stack gap={0}>
-              <Box px={6} py={4} borderBottom="2px solid" borderColor="yellow.400">
+              <Box px={6} py={4} borderBottom="2px solid" borderColor="blue.400">
                 <Text fontSize="xl" fontWeight="700" color="white">
-                  ⏱️ Timeout - {timeoutTeam === 'home' ? teamName : opponentName}
+                  Start Quarter {pendingQuarterChange.newQuarter}?
                 </Text>
               </Box>
               <Box px={6} py={6}>
                 <Stack gap={4}>
-                  <Text color="white" fontSize="md">
-                    Recording timeout for <Text as="span" fontWeight="700" color="yellow.400">{timeoutTeam === 'home' ? teamName : opponentName}</Text>
+                  <Text color="gray.200" fontSize="md">
+                    Starting Quarter {pendingQuarterChange.newQuarter} will:
                   </Text>
-                  
-                  <Box>
-                    <Text fontSize="sm" fontWeight="600" color="yellow.400" mb={2}>
-                      Timeouts Remaining: {timeoutTeam === 'home' ? homeTimeouts - 1 : awayTimeouts - 1} of 3
-                    </Text>
-                  </Box>
-
-                  <Box>
-                    <Text fontSize="sm" fontWeight="600" color="yellow.400" mb={2}>
-                      Game Time
-                    </Text>
-                    <Input
-                      value={timeoutTime}
-                      onChange={(e) => setTimeoutTime(e.target.value)}
-                      placeholder="MM:SS"
-                      bg="rgba(0, 0, 0, 0.4)"
-                      borderColor="gray.600"
-                      color="white"
-                      _placeholder={{ color: 'gray.400' }}
-                      size="lg"
-                    />
-                    <Text fontSize="xs" color="gray.400" mt={1}>
-                      Quarter {currentQuarter}
+                  <Stack gap={2} pl={4}>
+                    <HStack gap={2}>
+                      <Text color="blue.400" fontSize="lg">•</Text>
+                      <Text color="gray.300">Reset game clock to 12:00</Text>
+                    </HStack>
+                    {(pendingQuarterChange.newQuarter === 2 || pendingQuarterChange.newQuarter === 4) && (
+                      <HStack gap={2}>
+                        <Text color="blue.400" fontSize="lg">•</Text>
+                        <Text color="gray.300">Swap field direction (teams switch sides)</Text>
+                      </HStack>
+                    )}
+                    <HStack gap={2}>
+                      <Text color="blue.400" fontSize="lg">•</Text>
+                      <Text color="gray.300">Reset possession clock for new quarter</Text>
+                    </HStack>
+                    <HStack gap={2}>
+                      <Text color="blue.400" fontSize="lg">•</Text>
+                      <Text color="gray.300">Continue tracking time of possession from current drive</Text>
+                    </HStack>
+                  </Stack>
+                  <Box bg="blue.900" p={3} borderRadius="md" border="1px solid" borderColor="blue.400">
+                    <Text color="blue.200" fontSize="sm" fontWeight="600">
+                      ℹ️ Current possession time will carry over to the new quarter until possession changes.
                     </Text>
                   </Box>
                 </Stack>
               </Box>
-              <Box px={6} py={4} borderTop="2px solid" borderColor="yellow.400">
-                <Stack direction="row" gap={2}>
+              <Box px={6} py={4} borderTop="2px solid" borderColor="blue.400">
+                <Stack direction="row" gap={3}>
                   <Button
-                    bg="yellow.500"
-                    color="black"
-                    _hover={{ bg: 'yellow.400' }}
-                    onClick={recordTimeout}
-                    flex={1}
-                    fontWeight="700"
-                  >
-                    ✓ Charge Timeout
-                  </Button>
-                  <Button
-                    bg="gray.700"
-                    color="white"
-                    _hover={{ bg: 'gray.600' }}
-                    onClick={() => { onTimeoutClose(); setTimeoutTeam(null); setTimeoutTime(''); }}
+                    variant="ghost"
+                    color="gray.200"
+                    onClick={() => {
+                      onQuarterChangeClose();
+                      setPendingQuarterChange(null);
+                    }}
                     flex={1}
                   >
                     Cancel
+                  </Button>
+                  <Button
+                    bg="blue.500"
+                    color="white"
+                    _hover={{ bg: 'blue.400' }}
+                    onClick={confirmQuarterChange}
+                    flex={1}
+                    fontWeight="700"
+                  >
+                    ✓ Start Quarter {pendingQuarterChange.newQuarter}
+                  </Button>
+                </Stack>
+              </Box>
+            </Stack>
+          </Box>
+        </Portal>
+      )}
+
+      {/* Extra Point / 2PT Conversion Modal */}
+      {isExtraPointOpen && pendingExtraPoint && (
+        <Portal>
+          <Box
+            position="fixed"
+            top={0}
+            left={0}
+            right={0}
+            bottom={0}
+            bg="blackAlpha.700"
+            zIndex={1000}
+            onClick={() => {
+              onExtraPointClose();
+              setPendingExtraPoint(null);
+              setExtraPointType(null);
+              setExtraPointPlayer(null);
+              setExtraPointSearch('');
+            }}
+          />
+          <Box
+            position="fixed"
+            top="50%"
+            left="50%"
+            transform="translate(-50%, -50%)"
+            bg="gray.900"
+            borderRadius="xl"
+            boxShadow="0 8px 32px rgba(0, 0, 0, 0.5)"
+            border="2px solid"
+            borderColor="orange.400"
+            maxW="600px"
+            w="90%"
+            zIndex={1001}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Stack gap={0}>
+              <Box px={6} py={4} borderBottom="2px solid" borderColor="orange.400">
+                <Text fontSize="xl" fontWeight="700" color="white">
+                  Extra Point / 2-Point Conversion
+                </Text>
+              </Box>
+              <Box px={6} py={6}>
+                <Stack gap={4}>
+                  {!extraPointType ? (
+                    <>
+                      <Text color="gray.200" mb={2}>
+                        Select the outcome of the extra point attempt:
+                      </Text>
+                      <SimpleGrid columns={2} gap={3}>
+                        <Button
+                          h="60px"
+                          bg="green.600"
+                          color="white"
+                          _hover={{ bg: 'green.500' }}
+                          onClick={() => setExtraPointType('xp-made')}
+                          fontSize="md"
+                          fontWeight="700"
+                        >
+                          ✓ XP Made (+1)
+                        </Button>
+                        <Button
+                          h="60px"
+                          bg="red.600"
+                          color="white"
+                          _hover={{ bg: 'red.500' }}
+                          onClick={() => setExtraPointType('xp-missed')}
+                          fontSize="md"
+                          fontWeight="700"
+                        >
+                          ✗ XP Missed
+                        </Button>
+                        <Button
+                          h="60px"
+                          bg="blue.600"
+                          color="white"
+                          _hover={{ bg: 'blue.500' }}
+                          onClick={() => setExtraPointType('2pt-made')}
+                          fontSize="md"
+                          fontWeight="700"
+                        >
+                          ✓ 2PT Made (+2)
+                        </Button>
+                        <Button
+                          h="60px"
+                          bg="gray.600"
+                          color="white"
+                          _hover={{ bg: 'gray.500' }}
+                          onClick={() => {
+                            setExtraPointType('2pt-failed');
+                            recordExtraPoint();
+                          }}
+                          fontSize="md"
+                          fontWeight="700"
+                        >
+                          ✗ 2PT Failed
+                        </Button>
+                      </SimpleGrid>
+                    </>
+                  ) : (
+                    <>
+                      <Text color="gray.200" mb={2}>
+                        {extraPointType === 'xp-made' && 'Select kicker for successful extra point:'}
+                        {extraPointType === 'xp-missed' && 'Select kicker for missed extra point:'}
+                        {extraPointType === '2pt-made' && 'Select player for successful 2-point conversion:'}
+                      </Text>
+                      <Input
+                        placeholder="Search by name or jersey..."
+                        value={extraPointSearch}
+                        onChange={(e) => setExtraPointSearch(e.target.value.toLowerCase())}
+                        bg="gray.800"
+                        border="1px solid"
+                        borderColor="gray.600"
+                        color="white"
+                        _placeholder={{ color: 'gray.400' }}
+                        size="lg"
+                      />
+                      {extraPointPlayer && (
+                        <Box
+                          bg="orange.500"
+                          color="white"
+                          px={4}
+                          py={3}
+                          borderRadius="md"
+                          fontWeight="700"
+                        >
+                          Selected: #{extraPointPlayer.jerseyNumber} {extraPointPlayer.name}
+                        </Box>
+                      )}
+                      <Box
+                        maxH="300px"
+                        overflowY="auto"
+                        border="1px solid"
+                        borderColor="gray.700"
+                        borderRadius="md"
+                      >
+                        {roster
+                          .filter((p) =>
+                            extraPointSearch === '' ||
+                            p.name.toLowerCase().includes(extraPointSearch) ||
+                            (p.jerseyNumber && p.jerseyNumber.toString().includes(extraPointSearch))
+                          )
+                          .map((p) => (
+                            <Box
+                              key={p.id}
+                              px={4}
+                              py={3}
+                              cursor="pointer"
+                              bg={extraPointPlayer?.id === p.id ? 'orange.600' : 'transparent'}
+                              _hover={{ bg: extraPointPlayer?.id === p.id ? 'orange.600' : 'gray.800' }}
+                              onClick={() => setExtraPointPlayer(p)}
+                              borderBottom="1px solid"
+                              borderColor="gray.700"
+                            >
+                              <Text color="white" fontWeight={extraPointPlayer?.id === p.id ? '700' : '400'}>
+                                #{p.jerseyNumber} {p.name}
+                              </Text>
+                            </Box>
+                          ))}
+                      </Box>
+                    </>
+                  )}
+                </Stack>
+              </Box>
+              <Box px={6} py={4} borderTop="2px solid" borderColor="orange.400">
+                <Stack direction="row" gap={3}>
+                  <Button
+                    variant="ghost"
+                    color="gray.200"
+                    onClick={() => {
+                      if (extraPointType) {
+                        setExtraPointType(null);
+                        setExtraPointPlayer(null);
+                        setExtraPointSearch('');
+                      } else {
+                        onExtraPointClose();
+                        setPendingExtraPoint(null);
+                      }
+                    }}
+                    flex={1}
+                  >
+                    {extraPointType ? '← Back' : 'Cancel'}
+                  </Button>
+                  {extraPointType && extraPointPlayer && (
+                    <Button
+                      bg="orange.500"
+                      color="white"
+                      _hover={{ bg: 'orange.400' }}
+                      onClick={recordExtraPoint}
+                      flex={1}
+                      fontWeight="700"
+                    >
+                      ✓ Confirm
+                    </Button>
+                  )}
+                </Stack>
+              </Box>
+            </Stack>
+          </Box>
+        </Portal>
+      )}
+
+      {/* Kickoff Return Modal */}
+      {isKickoffReturnOpen && pendingKickoffReturn && playInput && (
+        <Portal>
+          <Box
+            position="fixed"
+            top={0}
+            left={0}
+            right={0}
+            bottom={0}
+            bg="blackAlpha.700"
+            zIndex={1000}
+            onClick={() => {
+              onKickoffReturnClose();
+              setPendingKickoffReturn(null);
+              setKickoffReturner(null);
+              setKickoffReturnSearch('');
+            }}
+          />
+          <Box
+            position="fixed"
+            top="50%"
+            left="50%"
+            transform="translate(-50%, -50%)"
+            bg="gray.900"
+            borderRadius="xl"
+            boxShadow="0 8px 32px rgba(0, 0, 0, 0.5)"
+            border="2px solid"
+            borderColor="purple.400"
+            maxW="600px"
+            w="90%"
+            zIndex={1001}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Stack gap={0}>
+              <Box px={6} py={4} borderBottom="2px solid" borderColor="purple.400">
+                <Text fontSize="xl" fontWeight="700" color="white">
+                  Kickoff Return
+                </Text>
+              </Box>
+              <Box px={6} py={6}>
+                <Stack gap={4}>
+                  <Text color="gray.200">
+                    Select the return player from the {pendingKickoffReturn.kickingTeam === 'home' ? opponentName : teamName}:
+                  </Text>
+                  <Input
+                    placeholder="Search by name or jersey..."
+                    value={kickoffReturnSearch}
+                    onChange={(e) => setKickoffReturnSearch(e.target.value.toLowerCase())}
+                    bg="gray.800"
+                    border="1px solid"
+                    borderColor="gray.600"
+                    color="white"
+                    _placeholder={{ color: 'gray.400' }}
+                    size="lg"
+                  />
+                  {kickoffReturner && (
+                    <Box
+                      bg="purple.500"
+                      color="white"
+                      px={4}
+                      py={3}
+                      borderRadius="md"
+                      fontWeight="700"
+                    >
+                      Returner: #{kickoffReturner.jerseyNumber} {kickoffReturner.name}
+                    </Box>
+                  )}
+                  <Text color="gray.400" fontSize="sm" fontWeight="600">
+                    Return End Position:
+                  </Text>
+                  <Stack gap={3}>
+                    {/* PL/CT Selector */}
+                    <HStack gap={2}>
+                      <Button
+                        size="sm"
+                        bg={returnYardSide === 'PL' ? 'purple.500' : 'gray.700'}
+                        color="white"
+                        _hover={{ bg: returnYardSide === 'PL' ? 'purple.400' : 'gray.600' }}
+                        onClick={() => {
+                          setReturnYardSide('PL');
+                          const actualYard = convertFromPlCt('PL', parseInt(returnYardValue));
+                          setPlayInput(prev => prev ? { ...prev, endYard: actualYard } : prev);
+                        }}
+                        flex={1}
+                        fontWeight="700"
+                      >
+                        PL (Plus)
+                      </Button>
+                      <Button
+                        size="sm"
+                        bg={returnYardSide === 'CT' ? 'purple.500' : 'gray.700'}
+                        color="white"
+                        _hover={{ bg: returnYardSide === 'CT' ? 'purple.400' : 'gray.600' }}
+                        onClick={() => {
+                          setReturnYardSide('CT');
+                          const actualYard = convertFromPlCt('CT', parseInt(returnYardValue));
+                          setPlayInput(prev => prev ? { ...prev, endYard: actualYard } : prev);
+                        }}
+                        flex={1}
+                        fontWeight="700"
+                      >
+                        CT (Center)
+                      </Button>
+                    </HStack>
+                    
+                    {/* Yard Line Input with Number Pad */}
+                    <Box>
+                      <Input
+                        value={`${returnYardSide} ${returnYardValue}`}
+                        readOnly
+                        onClick={() => setShowReturnYardPad(!showReturnYardPad)}
+                        bg="gray.800"
+                        border="2px solid"
+                        borderColor="purple.400"
+                        color="white"
+                        size="lg"
+                        textAlign="center"
+                        fontWeight="700"
+                        fontSize="xl"
+                        cursor="pointer"
+                        _placeholder={{ color: 'gray.400' }}
+                        placeholder="Tap to enter yard line"
+                      />
+                      
+                      {showReturnYardPad && (
+                        <Box mt={2} p={3} bg="gray.800" borderRadius="md" border="1px solid" borderColor="purple.400">
+                          <SimpleGrid columns={3} gap={2}>
+                            {[7,8,9,4,5,6,1,2,3].map((n) => (
+                              <Button
+                                key={n}
+                                h="45px"
+                                bg="gray.700"
+                                color="white"
+                                _hover={{ bg: 'gray.600' }}
+                                onClick={() => handleReturnYardDigit(n)}
+                                fontWeight="700"
+                                fontSize="lg"
+                              >
+                                {n}
+                              </Button>
+                            ))}
+                            <Button
+                              h="45px"
+                              bg="gray.700"
+                              color="white"
+                              _hover={{ bg: 'gray.600' }}
+                              onClick={() => handleReturnYardDigit(0)}
+                              fontWeight="700"
+                              fontSize="lg"
+                            >
+                              0
+                            </Button>
+                            <Button
+                              h="45px"
+                              bg="red.600"
+                              color="white"
+                              _hover={{ bg: 'red.500' }}
+                              onClick={handleReturnYardBackspace}
+                              fontWeight="700"
+                            >
+                              ←
+                            </Button>
+                            <Button
+                              h="45px"
+                              bg="orange.600"
+                              color="white"
+                              _hover={{ bg: 'orange.500' }}
+                              onClick={handleReturnYardClear}
+                              fontWeight="700"
+                              fontSize="sm"
+                            >
+                              CLR
+                            </Button>
+                          </SimpleGrid>
+                        </Box>
+                      )}
+                    </Box>
+                    
+                    {/* Return Stats Display */}
+                    <Stack gap={1} fontSize="sm">
+                      <HStack justify="space-between">
+                        <Text color="gray.400">Kickoff End (0-100 scale):</Text>
+                        <Text color="purple.300" fontWeight="700">{pendingKickoffReturn.kickEndYard}</Text>
+                      </HStack>
+                      <HStack justify="space-between">
+                        <Text color="gray.400">Return End (0-100 scale):</Text>
+                        <Text color="purple.300" fontWeight="700">{playInput.endYard}</Text>
+                      </HStack>
+                      <HStack justify="space-between">
+                        <Text color="gray.400">Return Yards:</Text>
+                        <Text color="purple.300" fontWeight="700" fontSize="lg">
+                          {Math.abs(playInput.endYard - pendingKickoffReturn.kickEndYard)} yards
+                        </Text>
+                      </HStack>
+                    </Stack>
+                  </Stack>
+                  
+                  <Text color="gray.400" fontSize="sm" fontWeight="600" mt={2}>
+                    Select Returner:
+                  </Text>
+                  <Box
+                    maxH="200px"
+                    overflowY="auto"
+                    border="1px solid"
+                    borderColor="gray.700"
+                    borderRadius="md"
+                  >
+                    {(pendingKickoffReturn.kickingTeam === 'home' ? (opponent?.roster || []) : roster)
+                      .filter((p: Player) =>
+                        kickoffReturnSearch === '' ||
+                        p.name.toLowerCase().includes(kickoffReturnSearch) ||
+                        (p.jerseyNumber && p.jerseyNumber.toString().includes(kickoffReturnSearch))
+                      )
+                      .map((p: Player) => (
+                        <Box
+                          key={p.id}
+                          px={4}
+                          py={3}
+                          cursor="pointer"
+                          bg={kickoffReturner?.id === p.id ? 'purple.600' : 'transparent'}
+                          _hover={{ bg: kickoffReturner?.id === p.id ? 'purple.600' : 'gray.800' }}
+                          onClick={() => setKickoffReturner(p)}
+                          borderBottom="1px solid"
+                          borderColor="gray.700"
+                        >
+                          <Text color="white" fontWeight={kickoffReturner?.id === p.id ? '700' : '400'}>
+                            #{p.jerseyNumber} {p.name}
+                          </Text>
+                        </Box>
+                      ))}
+                  </Box>
+                </Stack>
+              </Box>
+              <Box px={6} py={4} borderTop="2px solid" borderColor="purple.400">
+                <Stack direction="row" gap={3}>
+                  <Button
+                    variant="ghost"
+                    color="gray.200"
+                    onClick={() => {
+                      onKickoffReturnClose();
+                      setPendingKickoffReturn(null);
+                      setKickoffReturner(null);
+                      setKickoffReturnSearch('');
+                    }}
+                    flex={1}
+                  >
+                    Cancel
+                  </Button>
+                  {kickoffReturner && (
+                    <Button
+                      bg="purple.500"
+                      color="white"
+                      _hover={{ bg: 'purple.400' }}
+                      onClick={recordKickoffReturn}
+                      flex={1}
+                      fontWeight="700"
+                    >
+                      ✓ Confirm Return
+                    </Button>
+                  )}
+                </Stack>
+              </Box>
+            </Stack>
+          </Box>
+        </Portal>
+      )}
+
+      {/* Interception Time Modal */}
+      {isInterceptionTimeOpen && pendingInterception && (
+        <Portal>
+          <Box
+            position="fixed"
+            top={0}
+            left={0}
+            right={0}
+            bottom={0}
+            bg="blackAlpha.700"
+            zIndex={1000}
+            onClick={() => { onInterceptionTimeClose(); setPendingInterception(null); setInterceptionTime(''); }}
+          />
+          <Box
+            position="fixed"
+            top="50%"
+            left="50%"
+            transform="translate(-50%, -50%)"
+            bg="gray.900"
+            borderRadius="xl"
+            boxShadow="0 8px 32px rgba(0, 0, 0, 0.5)"
+            border="2px solid"
+            borderColor="purple.400"
+            maxW="500px"
+            w="90%"
+            zIndex={1001}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Stack gap={0}>
+              <Box px={6} py={4} borderBottom="2px solid" borderColor="purple.400">
+                <Text fontSize="xl" fontWeight="700" color="white">Interception - Set Clock Time</Text>
+              </Box>
+              <Box px={6} py={6}>
+                <Stack gap={3}>
+                  <Text color="gray.200">
+                    Enter game clock time of interception (MM:SS).
+                  </Text>
+                  <Stack align="center" gap={3} py={2}>
+                    <HStack gap={4} align="center">
+                      <Stack align="center" gap={1}>
+                        <Button size="xs" variant="ghost" color="purple.300" onClick={() => adjustMinutes(1)}>▲</Button>
+                        <Text fontFamily="mono" fontSize="4xl" color="purple.300">
+                          {clockMinutes.toString().padStart(2, '0')}
+                        </Text>
+                        <Button size="xs" variant="ghost" color="purple.300" onClick={() => adjustMinutes(-1)}>▼</Button>
+                      </Stack>
+                      <Text fontFamily="mono" fontSize="4xl" color="purple.300">:</Text>
+                      <Stack align="center" gap={1}>
+                        <Button size="xs" variant="ghost" color="purple.300" onClick={() => adjustSeconds(1)}>▲</Button>
+                        <Text fontFamily="mono" fontSize="4xl" color="purple.300">
+                          {clockSeconds.toString().padStart(2, '0')}
+                        </Text>
+                        <Button size="xs" variant="ghost" color="purple.300" onClick={() => adjustSeconds(-1)}>▼</Button>
+                      </Stack>
+                    </HStack>
+                    <SimpleGrid columns={3} gap={2} w="100%">
+                      {[1,2,3,4,5,6,7,8,9].map((n) => (
+                        <Button key={n} h="48px" bg="gray.800" color="white" _hover={{ bg: 'gray.700' }} onClick={() => handleDigitPress(n)}>
+                          {n}
+                        </Button>
+                      ))}
+                      <Button h="48px" bg="gray.800" color="white" _hover={{ bg: 'gray.700' }} onClick={() => handleDigitPress(0)}>
+                        0
+                      </Button>
+                      <Button h="48px" bg="gray.800" color="white" _hover={{ bg: 'gray.700' }} onClick={handleClockClear}>
+                        Clear
+                      </Button>
+                    </SimpleGrid>
+                  </Stack>
+                </Stack>
+              </Box>
+              <Box px={6} py={4} borderTop="2px solid" borderColor="purple.400">
+                <Stack direction="row" gap={3}>
+                  <Button
+                    variant="ghost"
+                    color="gray.200"
+                    onClick={() => { onInterceptionTimeClose(); setPendingInterception(null); setInterceptionTime(''); }}
+                    flex={1}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    bg="purple.500"
+                    color="white"
+                    _hover={{ bg: 'purple.400' }}
+                    onClick={recordInterceptionTime}
+                    flex={1}
+                    fontWeight="700"
+                  >
+                    ✓ Confirm
                   </Button>
                 </Stack>
               </Box>
@@ -2420,79 +4068,107 @@ const ScoringScreen: React.FC = () => {
       )}
 
       {/* Possession change prompt */}
-      <DialogRoot
-        open={isPossessionPromptOpen}
-        onOpenChange={(open: boolean) => {
-          if (!open) {
-            onPossessionPromptClose();
-            setPendingPossessionReason(null);
-          }
-        }}
-      >
-        <DialogBackdrop />
-        <DialogPositioner>
-          <DialogContent bg="gray.900" border="2px solid" borderColor="yellow.400">
-            <DialogHeader>
-              <DialogTitle color="white">Possession Change</DialogTitle>
-              <DialogCloseTrigger color="white" />
-            </DialogHeader>
-            <DialogBody>
-              <Stack gap={3}>
-                <Text color="gray.200">
-                  {pendingPossessionReason || 'Change of possession'}. Enter current game clock (MM:SS).
-                </Text>
-                <Stack align="center" gap={3} py={2}>
-                  <HStack gap={4} align="center">
-                    <Stack align="center" gap={1}>
-                      <Button size="xs" variant="ghost" color="yellow.300" onClick={() => adjustMinutes(1)}>▲</Button>
-                      <Text fontFamily="mono" fontSize="4xl" color="yellow.300">
-                        {clockMinutes.toString().padStart(2, '0')}
-                      </Text>
-                      <Button size="xs" variant="ghost" color="yellow.300" onClick={() => adjustMinutes(-1)}>▼</Button>
-                    </Stack>
-                    <Text fontFamily="mono" fontSize="4xl" color="yellow.300">:</Text>
-                    <Stack align="center" gap={1}>
-                      <Button size="xs" variant="ghost" color="yellow.300" onClick={() => adjustSeconds(1)}>▲</Button>
-                      <Text fontFamily="mono" fontSize="4xl" color="yellow.300">
-                        {clockSeconds.toString().padStart(2, '0')}
-                      </Text>
-                      <Button size="xs" variant="ghost" color="yellow.300" onClick={() => adjustSeconds(-1)}>▼</Button>
-                    </Stack>
-                  </HStack>
-                  <SimpleGrid columns={3} gap={2} w="100%">
-                    {[1,2,3,4,5,6,7,8,9].map((n) => (
-                      <Button key={n} h="48px" bg="gray.800" color="white" _hover={{ bg: 'gray.700' }} onClick={() => handleDigitPress(n)}>
-                        {n}
+      {isPossessionPromptOpen && (
+        <Portal>
+          <Box
+            position="fixed"
+            top={0}
+            left={0}
+            right={0}
+            bottom={0}
+            bg="blackAlpha.700"
+            zIndex={1000}
+            onClick={() => {
+              onPossessionPromptClose();
+              setPendingPossessionReason(null);
+            }}
+          />
+          <Box
+            position="fixed"
+            top="50%"
+            left="50%"
+            transform="translate(-50%, -50%)"
+            bg="gray.900"
+            borderRadius="xl"
+            boxShadow="0 8px 32px rgba(0, 0, 0, 0.5)"
+            border="2px solid"
+            borderColor="yellow.400"
+            maxW="500px"
+            w="90%"
+            zIndex={1001}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Stack gap={0}>
+              <Box px={6} py={4} borderBottom="2px solid" borderColor="yellow.400">
+                <Text fontSize="xl" fontWeight="700" color="white">Possession Change</Text>
+              </Box>
+              <Box px={6} py={6}>
+                <Stack gap={3}>
+                  <Text color="gray.200">
+                    {pendingPossessionReason || 'Change of possession'}. Enter current game clock (MM:SS).
+                  </Text>
+                  <Stack align="center" gap={3} py={2}>
+                    <HStack gap={4} align="center">
+                      <Stack align="center" gap={1}>
+                        <Button size="xs" variant="ghost" color="yellow.300" onClick={() => adjustMinutes(1)}>▲</Button>
+                        <Text fontFamily="mono" fontSize="4xl" color="yellow.300">
+                          {clockMinutes.toString().padStart(2, '0')}
+                        </Text>
+                        <Button size="xs" variant="ghost" color="yellow.300" onClick={() => adjustMinutes(-1)}>▼</Button>
+                      </Stack>
+                      <Text fontFamily="mono" fontSize="4xl" color="yellow.300">:</Text>
+                      <Stack align="center" gap={1}>
+                        <Button size="xs" variant="ghost" color="yellow.300" onClick={() => adjustSeconds(1)}>▲</Button>
+                        <Text fontFamily="mono" fontSize="4xl" color="yellow.300">
+                          {clockSeconds.toString().padStart(2, '0')}
+                        </Text>
+                        <Button size="xs" variant="ghost" color="yellow.300" onClick={() => adjustSeconds(-1)}>▼</Button>
+                      </Stack>
+                    </HStack>
+                    <SimpleGrid columns={3} gap={2} w="100%">
+                      {[1,2,3,4,5,6,7,8,9].map((n) => (
+                        <Button key={n} h="48px" bg="gray.800" color="white" _hover={{ bg: 'gray.700' }} onClick={() => handleDigitPress(n)}>
+                          {n}
+                        </Button>
+                      ))}
+                      <Button h="48px" bg="gray.800" color="white" _hover={{ bg: 'gray.700' }} onClick={() => handleDigitPress(0)}>
+                        0
                       </Button>
-                    ))}
-                    <Button h="48px" bg="gray.800" color="white" _hover={{ bg: 'gray.700' }} onClick={() => handleDigitPress(0)}>
-                      0
-                    </Button>
-                    <Button h="48px" bg="gray.800" color="white" _hover={{ bg: 'gray.700' }} onClick={handleClockClear}>
-                      Clear
-                    </Button>
-                  </SimpleGrid>
+                      <Button h="48px" bg="gray.800" color="white" _hover={{ bg: 'gray.700' }} onClick={handleClockClear}>
+                        Clear
+                      </Button>
+                    </SimpleGrid>
+                  </Stack>
                 </Stack>
-              </Stack>
-            </DialogBody>
-            <DialogFooter gap={3}>
-              <Button
-                variant="ghost"
-                color="gray.200"
-                onClick={() => {
-                  onPossessionPromptClose();
-                  setPendingPossessionReason(null);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button bg="yellow.500" color="black" _hover={{ bg: 'yellow.400' }} onClick={confirmPossessionChange}>
-                Confirm
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </DialogPositioner>
-      </DialogRoot>
+              </Box>
+              <Box px={6} py={4} borderTop="2px solid" borderColor="yellow.400">
+                <Stack direction="row" gap={3}>
+                  <Button
+                    variant="ghost"
+                    color="gray.200"
+                    onClick={() => {
+                      onPossessionPromptClose();
+                      setPendingPossessionReason(null);
+                    }}
+                    flex={1}
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    bg="yellow.500" 
+                    color="black" 
+                    _hover={{ bg: 'yellow.400' }} 
+                    onClick={confirmPossessionChange}
+                    flex={1}
+                  >
+                    Confirm
+                  </Button>
+                </Stack>
+              </Box>
+            </Stack>
+          </Box>
+        </Portal>
+      )}
     </Stack>
   );
 };
