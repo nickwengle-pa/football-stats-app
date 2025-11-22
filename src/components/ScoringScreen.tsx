@@ -19,6 +19,7 @@ import {
   useDisclosure,
   Portal,
   HStack,
+  Flex,
 } from '@chakra-ui/react';
 import { Game, Play, PlayType, Player, OpponentTeam } from '../models';
 import { subscribeToGame, saveGame, listOpponents, getSeasonRoster } from '../services/dbService';
@@ -167,6 +168,12 @@ const ScoringScreen: React.FC = () => {
   const [editTacklers, setEditTacklers] = useState<Player[]>([]);
   const [editDefenseSearch, setEditDefenseSearch] = useState<string>('');
   const [editPlayerSearch, setEditPlayerSearch] = useState<string>('');
+  const [editTabIndex, setEditTabIndex] = useState(0);
+  const editSections = ['Offense', 'Situation', 'Defense'] as const;
+  const handleEditModalClose = () => {
+    setEditTabIndex(0);
+    onEditClose();
+  };
 
   // Quick stats panel
   const { open: isStatsOpen, onOpen: onStatsOpen, onClose: onStatsClose } = useDisclosure();
@@ -720,8 +727,6 @@ const ScoringScreen: React.FC = () => {
     homeTopSeconds,
     awayTopSeconds,
     openingKickoffReceiver,
-    homeTopSeconds,
-    awayTopSeconds,
     // Note: Don't include 'game' to avoid save loops when Firestore updates
     teamId,
     activeSeasonId,
@@ -1555,7 +1560,7 @@ const ScoringScreen: React.FC = () => {
             yardLine: playInput.endYard,
             teamSide: possession,
           };
-          const withTurnover = addPlayAndRecalc({ ...nextGame, plays: [...nextGame.plays, turnoverPlay] }, turnoverPlay);
+          const withTurnover = addPlayAndRecalc(nextGame, turnoverPlay);
           setGame(withTurnover);
           await saveGame(withTurnover, { teamId, seasonId: activeSeasonId });
           setDown(1);
@@ -1654,6 +1659,7 @@ const ScoringScreen: React.FC = () => {
   };
 
   const openPlayEditor = (play: Play) => {
+    setEditTabIndex(0);
     setEditingPlay(play);
     setEditForm({
       playerId: play.playerId || '',
@@ -1726,7 +1732,7 @@ const ScoringScreen: React.FC = () => {
       setGame(updatedGame);
       await saveGame(updatedGame, { teamId, seasonId: activeSeasonId });
       setFeedback({ status: 'success', message: 'Play updated successfully.' });
-      onEditClose();
+      handleEditModalClose();
       setEditingPlay(null);
     } catch (error) {
       console.error('Failed to update play', error);
@@ -2660,7 +2666,7 @@ const ScoringScreen: React.FC = () => {
             bottom={0}
             bg="blackAlpha.600"
             zIndex={1000}
-            onClick={onEditClose}
+            onClick={handleEditModalClose}
           />
           <Box
             position="fixed"
@@ -2670,262 +2676,281 @@ const ScoringScreen: React.FC = () => {
             bg="white"
             borderRadius="lg"
             boxShadow="2xl"
-            maxW="500px"
+            maxW="520px"
             w="90%"
             maxH="80vh"
             zIndex={1001}
             overflow="hidden"
           >
-            <Stack gap={0}>
-              <Box px={4} py={3} borderBottom="1px solid" borderColor="border.subtle">
+            <Flex direction="column" h="100%">
+              <Box px={6} py={4} borderBottom="1px solid" borderColor="border.subtle">
                 <Text fontSize="lg" fontWeight="600">Edit Play</Text>
+                <Text fontSize="sm" color="gray.600" mt={1}>
+                  {`Step ${editTabIndex + 1} of ${editSections.length}: ${editSections[editTabIndex]}`}
+                </Text>
               </Box>
-              <Box px={4} py={3} overflowY="auto">
-                <Stack gap={3}>
-                  {/* Player Selection */}
-                  <Box>
-                    <Text fontSize="xs" fontWeight="600" mb={1}>Player</Text>
-                    <Input
-                      placeholder="Search jersey # or name..."
-                      value={editPlayerSearch}
-                      onChange={(e) => setEditPlayerSearch(e.target.value)}
-                      size="sm"
-                      mb={2}
-                    />
-                    {(() => {
-                      const searchLower = editPlayerSearch.toLowerCase().trim();
-                      const filteredRoster = searchLower === ''
-                        ? []
-                        : roster.filter((p: Player) =>
-                            p.jerseyNumber?.toString() === searchLower ||
-                            p.name.toLowerCase().includes(searchLower)
-                          );
-                      
-                      const selectedPlayer = roster.find(p => p.id === editForm.playerId);
-                      
-                      return (
-                        <>
-                          {selectedPlayer && (
-                            <Box p={2} bg="blue.50" borderRadius="md" border="1px solid" borderColor="blue.200" mb={2}>
-                              <Text fontSize="sm" fontWeight="600">
-                                #{selectedPlayer.jerseyNumber} {selectedPlayer.name}
-                              </Text>
-                            </Box>
-                          )}
-                          {filteredRoster.length > 0 && (
-                            <SimpleGrid columns={3} gap={1} maxH="100px" overflowY="auto">
-                              {filteredRoster.map((player: Player) => (
-                                <Button
-                                  key={player.id}
-                                  onClick={() => {
-                                    setEditForm({ ...editForm, playerId: player.id });
-                                    setEditPlayerSearch('');
-                                  }}
-                                  size="xs"
-                                  variant="outline"
-                                  borderColor="blue.300"
-                                  _hover={{ bg: 'blue.50' }}
-                                >
-                                  <Text fontSize="xs">
-                                    #{player.jerseyNumber} {player.name.split(' ')[0]}
+              <Box flex="1" overflowY="auto" px={6} py={4}>
+                <Stack gap={4}>
+                  <HStack gap={2}>
+                    {editSections.map((section, idx) => (
+                      <Button
+                        key={section}
+                        size="sm"
+                        flex={1}
+                        variant={editTabIndex === idx ? 'solid' : 'outline'}
+                        colorScheme={editTabIndex === idx ? 'blue' : 'gray'}
+                        onClick={() => setEditTabIndex(idx)}
+                      >
+                        {section}
+                      </Button>
+                    ))}
+                  </HStack>
+                  {editTabIndex === 0 && (
+                    <Stack gap={4}>
+                      <Box>
+                        <Text fontSize="xs" fontWeight="600" mb={1}>Player</Text>
+                        <Input
+                          placeholder="Search jersey # or name..."
+                          value={editPlayerSearch}
+                          onChange={(e) => setEditPlayerSearch(e.target.value)}
+                          size="sm"
+                          mb={2}
+                        />
+                        {(() => {
+                          const searchLower = editPlayerSearch.toLowerCase().trim();
+                          const filteredRoster = searchLower === ''
+                            ? []
+                            : roster.filter((p: Player) =>
+                                p.jerseyNumber?.toString() === searchLower ||
+                                p.name.toLowerCase().includes(searchLower)
+                              );
+                          
+                          const selectedPlayer = roster.find(p => p.id === editForm.playerId);
+                          
+                          return (
+                            <>
+                              {selectedPlayer && (
+                                <Box p={2} bg="blue.50" borderRadius="md" border="1px solid" borderColor="blue.200" mb={2}>
+                                  <Text fontSize="sm" fontWeight="600">
+                                    #{selectedPlayer.jerseyNumber} {selectedPlayer.name}
                                   </Text>
-                                </Button>
-                              ))}
-                            </SimpleGrid>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </Box>
-                  
-                  {/* Play Type */}
-                  <Box>
-                    <Text fontSize="xs" fontWeight="600" mb={1}>Play Type</Text>
-                    <SimpleGrid columns={4} gap={1}>
-                      {['Rush', 'Pass', 'Kickoff', 'Punt'].map((type) => {
-                        const playTypeLower = editForm.playType.toLowerCase();
-                        const isSelected = 
-                          playTypeLower === type.toLowerCase() ||
-                          (type === 'Pass' && playTypeLower.includes('pass'));
-                        return (
-                          <Button
-                            key={type}
-                            size="sm"
-                            variant={isSelected ? 'solid' : 'outline'}
-                            colorScheme={isSelected ? 'blue' : 'gray'}
-                            onClick={() => setEditForm({ ...editForm, playType: type })}
-                          >
-                            {type}
-                          </Button>
-                        );
-                      })}
-                    </SimpleGrid>
-                  </Box>
-                  
-                  <HStack gap={3}>
-                    <Box flex={1}>
-                      <Text fontSize="xs" fontWeight="600" mb={1}>Yards</Text>
-                      <Input
-                        type="number"
-                        value={editForm.yards}
-                        onChange={(e) => setEditForm({ ...editForm, yards: parseInt(e.target.value) || 0 })}
-                        placeholder="Yards"
-                        size="sm"
-                      />
-                    </Box>
-                    <Box flex={1}>
-                      <Text fontSize="xs" fontWeight="600" mb={1}>Quarter</Text>
-                      <HStack gap={1}>
-                        {[1, 2, 3, 4].map((q) => (
-                          <Button
-                            key={q}
-                            size="sm"
-                            variant={editForm.quarter === q ? 'solid' : 'outline'}
-                            colorScheme={editForm.quarter === q ? 'blue' : 'gray'}
-                            onClick={() => setEditForm({ ...editForm, quarter: q })}
-                            flex={1}
-                          >
-                            {q}
-                          </Button>
-                        ))}
-                      </HStack>
-                    </Box>
-                  </HStack>
-                  
-                  <HStack gap={3}>
-                    <Box flex={1}>
-                      <Text fontSize="xs" fontWeight="600" mb={1}>Down</Text>
-                      <Input
-                        type="number"
-                        value={editForm.down}
-                        onChange={(e) => setEditForm({ ...editForm, down: e.target.value })}
-                        placeholder="1-4"
-                        min={1}
-                        max={4}
-                        size="sm"
-                      />
-                    </Box>
-                    <Box flex={1}>
-                      <Text fontSize="xs" fontWeight="600" mb={1}>Distance</Text>
-                      <Input
-                        value={editForm.distance}
-                        onChange={(e) => setEditForm({ ...editForm, distance: e.target.value })}
-                        placeholder="10"
-                        size="sm"
-                      />
-                    </Box>
-                    <Box flex={1}>
-                      <Text fontSize="xs" fontWeight="600" mb={1}>Yard Line</Text>
-                      <Input
-                        type="number"
-                        value={editForm.yardLine}
-                        onChange={(e) => setEditForm({ ...editForm, yardLine: e.target.value })}
-                        placeholder="50"
-                        min={1}
-                        max={99}
-                        size="sm"
-                      />
-                    </Box>
-                  </HStack>
-                  
-                  {/* Tackler Selection */}
-                  <Box p={3} bg="gray.50" borderRadius="md" border="1px solid" borderColor="gray.200">
-                    <HStack justify="space-between" mb={2}>
-                      <Text fontSize="xs" fontWeight="600">
-                        Tacklers {editForm.yards < 0 && <Badge colorScheme="red" ml={1} fontSize="xs">TFL</Badge>}
-                      </Text>
-                      <Text fontSize="xs" color="gray.500">
-                        {editTacklers.length === 1 ? '1.0 credit' : editTacklers.length > 1 ? '0.5 credit each' : 'Up to 3'}
-                      </Text>
-                    </HStack>
-                    <Input
-                      placeholder="Search jersey # or name..."
-                      value={editDefenseSearch}
-                      onChange={(e) => setEditDefenseSearch(e.target.value)}
-                      bg="white"
-                      borderColor="gray.300"
-                      mb={2}
-                      size="sm"
-                    />
-                    {(() => {
-                      // Get opponent roster for defensive player selection
-                      const opposingRoster = editingPlay.teamSide === 'home' 
-                        ? (opponent?.roster || [])
-                        : roster;
-                      
-                      const searchLower = editDefenseSearch.toLowerCase().trim();
-                      const filteredOpposingRoster = searchLower === ''
-                        ? opposingRoster
-                        : opposingRoster.filter((p: Player) =>
-                            p.jerseyNumber?.toString() === searchLower ||
-                            p.name.toLowerCase().includes(searchLower)
+                                </Box>
+                              )}
+                              {filteredRoster.length > 0 && (
+                                <SimpleGrid columns={3} gap={1} maxH="100px" overflowY="auto">
+                                  {filteredRoster.map((player: Player) => (
+                                    <Button
+                                      key={player.id}
+                                      onClick={() => {
+                                        setEditForm({ ...editForm, playerId: player.id });
+                                        setEditPlayerSearch('');
+                                      }}
+                                      size="xs"
+                                      variant="outline"
+                                      borderColor="blue.300"
+                                      _hover={{ bg: 'blue.50' }}
+                                    >
+                                      <Text fontSize="xs">
+                                        #{player.jerseyNumber} {player.name.split(' ')[0]}
+                                      </Text>
+                                    </Button>
+                                  ))}
+                                </SimpleGrid>
+                              )}
+                            </>
                           );
-                      
-                      return (
-                        <>
-                          {filteredOpposingRoster.length === 0 ? (
-                            <Text textAlign="center" color="gray.500" py={2} fontSize="xs">
-                              No players found
-                            </Text>
-                          ) : (
-                            <SimpleGrid columns={3} gap={1} maxH="120px" overflowY="auto">
-                              {filteredOpposingRoster.map((player: Player, idx: number) => {
-                                const isSelected = editTacklers.some(t => t.id === player.id);
-                                return (
-                                  <Button
-                                    key={`edit-tackler-${player.id}-${idx}`}
-                                    onClick={() => {
-                                      if (isSelected) {
-                                        setEditTacklers(editTacklers.filter(t => t.id !== player.id));
-                                      } else if (editTacklers.length < 3) {
-                                        setEditTacklers([...editTacklers, player]);
-                                      }
-                                      setEditDefenseSearch('');
-                                    }}
-                                    size="xs"
-                                    h="auto"
-                                    py={1}
-                                    px={2}
-                                    variant="outline"
-                                    borderColor={isSelected ? 'red.500' : 'gray.300'}
-                                    bg={isSelected ? 'red.50' : 'white'}
-                                    _hover={{ borderColor: 'red.400', bg: isSelected ? 'red.100' : 'gray.50' }}
-                                    disabled={!isSelected && editTacklers.length >= 3}
-                                  >
-                                    <Text fontSize="xs" fontWeight={isSelected ? '600' : '500'}>
-                                      #{player.jerseyNumber} {player.name.split(' ')[0]}
-                                    </Text>
-                                  </Button>
-                                );
-                              })}
-                            </SimpleGrid>
-                          )}
-                          {editTacklers.length > 0 && (
-                            <HStack mt={2} flexWrap="wrap" gap={1}>
-                              {editTacklers.map(t => (
-                                <Badge key={t.id} colorScheme="red" fontSize="xs">
-                                  #{t.jerseyNumber} {t.name}
-                                </Badge>
-                              ))}
-                            </HStack>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </Box>
+                        })()}
+                      </Box>
+                      <Box>
+                        <Text fontSize="xs" fontWeight="600" mb={1}>Play Type</Text>
+                        <SimpleGrid columns={4} gap={1}>
+                          {['Rush', 'Pass', 'Kickoff', 'Punt'].map((type) => {
+                            const playTypeLower = editForm.playType.toLowerCase();
+                            const isSelected = 
+                              playTypeLower === type.toLowerCase() ||
+                              (type === 'Pass' && playTypeLower.includes('pass'));
+                            return (
+                              <Button
+                                key={type}
+                                size="sm"
+                                variant={isSelected ? 'solid' : 'outline'}
+                                colorScheme={isSelected ? 'blue' : 'gray'}
+                                onClick={() => setEditForm({ ...editForm, playType: type })}
+                              >
+                                {type}
+                              </Button>
+                            );
+                          })}
+                        </SimpleGrid>
+                      </Box>
+                    </Stack>
+                  )}
+                  {editTabIndex === 1 && (
+                    <Stack gap={4}>
+                      <HStack gap={3}>
+                        <Box flex={1}>
+                          <Text fontSize="xs" fontWeight="600" mb={1}>Yards</Text>
+                          <Input
+                            type="number"
+                            value={editForm.yards}
+                            onChange={(e) => setEditForm({ ...editForm, yards: parseInt(e.target.value) || 0 })}
+                            placeholder="Yards"
+                            size="sm"
+                          />
+                        </Box>
+                        <Box flex={1}>
+                          <Text fontSize="xs" fontWeight="600" mb={1}>Quarter</Text>
+                          <HStack gap={1}>
+                            {[1, 2, 3, 4].map((q) => (
+                              <Button
+                                key={q}
+                                size="sm"
+                                variant={editForm.quarter === q ? 'solid' : 'outline'}
+                                colorScheme={editForm.quarter === q ? 'blue' : 'gray'}
+                                onClick={() => setEditForm({ ...editForm, quarter: q })}
+                                flex={1}
+                              >
+                                {q}
+                              </Button>
+                            ))}
+                          </HStack>
+                        </Box>
+                      </HStack>
+                      <HStack gap={3}>
+                        <Box flex={1}>
+                          <Text fontSize="xs" fontWeight="600" mb={1}>Down</Text>
+                          <Input
+                            type="number"
+                            value={editForm.down}
+                            onChange={(e) => setEditForm({ ...editForm, down: e.target.value })}
+                            placeholder="1-4"
+                            min={1}
+                            max={4}
+                            size="sm"
+                          />
+                        </Box>
+                        <Box flex={1}>
+                          <Text fontSize="xs" fontWeight="600" mb={1}>Distance</Text>
+                          <Input
+                            value={editForm.distance}
+                            onChange={(e) => setEditForm({ ...editForm, distance: e.target.value })}
+                            placeholder="10"
+                            size="sm"
+                          />
+                        </Box>
+                        <Box flex={1}>
+                          <Text fontSize="xs" fontWeight="600" mb={1}>Yard Line</Text>
+                          <Input
+                            type="number"
+                            value={editForm.yardLine}
+                            onChange={(e) => setEditForm({ ...editForm, yardLine: e.target.value })}
+                            placeholder="50"
+                            min={1}
+                            max={99}
+                            size="sm"
+                          />
+                        </Box>
+                      </HStack>
+                    </Stack>
+                  )}
+                  {editTabIndex === 2 && (
+                    <Box p={3} bg="gray.50" borderRadius="md" border="1px solid" borderColor="gray.200">
+                      <HStack justify="space-between" mb={2}>
+                        <Text fontSize="xs" fontWeight="600">
+                          Tacklers {editForm.yards < 0 && <Badge colorScheme="red" ml={1} fontSize="xs">TFL</Badge>}
+                        </Text>
+                        <Text fontSize="xs" color="gray.500">
+                          {editTacklers.length === 1 ? '1.0 credit' : editTacklers.length > 1 ? '0.5 credit each' : 'Up to 3'}
+                        </Text>
+                      </HStack>
+                      <Input
+                        placeholder="Search jersey # or name..."
+                        value={editDefenseSearch}
+                        onChange={(e) => setEditDefenseSearch(e.target.value)}
+                        bg="white"
+                        borderColor="gray.300"
+                        mb={2}
+                        size="sm"
+                      />
+                      {(() => {
+                        const opposingRoster = editingPlay.teamSide === 'home' 
+                          ? (opponent?.roster || [])
+                          : roster;
+                        
+                        const searchLower = editDefenseSearch.toLowerCase().trim();
+                        const filteredOpposingRoster = searchLower === ''
+                          ? opposingRoster
+                          : opposingRoster.filter((p: Player) =>
+                              p.jerseyNumber?.toString() === searchLower ||
+                              p.name.toLowerCase().includes(searchLower)
+                            );
+                        
+                        return (
+                          <>
+                            {filteredOpposingRoster.length === 0 ? (
+                              <Text textAlign="center" color="gray.500" py={2} fontSize="xs">
+                                No players found
+                              </Text>
+                            ) : (
+                              <SimpleGrid columns={3} gap={1} maxH="120px" overflowY="auto">
+                                {filteredOpposingRoster.map((player: Player, idx: number) => {
+                                  const isSelected = editTacklers.some(t => t.id === player.id);
+                                  return (
+                                    <Button
+                                      key={`edit-tackler-${player.id}-${idx}`}
+                                      onClick={() => {
+                                        if (isSelected) {
+                                          setEditTacklers(editTacklers.filter(t => t.id !== player.id));
+                                        } else if (editTacklers.length < 3) {
+                                          setEditTacklers([...editTacklers, player]);
+                                        }
+                                        setEditDefenseSearch('');
+                                      }}
+                                      size="xs"
+                                      h="auto"
+                                      py={1}
+                                      px={2}
+                                      variant="outline"
+                                      borderColor={isSelected ? 'red.500' : 'gray.300'}
+                                      bg={isSelected ? 'red.50' : 'white'}
+                                      _hover={{ borderColor: 'red.400', bg: isSelected ? 'red.100' : 'gray.50' }}
+                                      disabled={!isSelected && editTacklers.length >= 3}
+                                    >
+                                      <Text fontSize="xs" fontWeight={isSelected ? '600' : '500'}>
+                                        #{player.jerseyNumber} {player.name.split(' ')[0]}
+                                      </Text>
+                                    </Button>
+                                  );
+                                })}
+                              </SimpleGrid>
+                            )}
+                            {editTacklers.length > 0 && (
+                              <HStack mt={2} flexWrap="wrap" gap={1}>
+                                {editTacklers.map(t => (
+                                  <Badge key={t.id} colorScheme="red" fontSize="xs">
+                                    #{t.jerseyNumber} {t.name}
+                                  </Badge>
+                                ))}
+                              </HStack>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </Box>
+                  )}
                 </Stack>
               </Box>
-              <Box px={4} py={3} borderTop="1px solid" borderColor="border.subtle">
+              <Box px={6} py={4} borderTop="1px solid" borderColor="border.subtle" bg="white">
                 <HStack gap={2}>
                   <Button colorScheme="blue" onClick={savePlayEdits} flex={1} size="sm">
                     Save
                   </Button>
-                  <Button variant="ghost" onClick={onEditClose} flex={1} size="sm">
+                  <Button variant="ghost" onClick={handleEditModalClose} flex={1} size="sm">
                     Cancel
                   </Button>
                 </HStack>
               </Box>
-            </Stack>
+            </Flex>
           </Box>
         </Portal>
       )}

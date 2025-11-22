@@ -22,6 +22,7 @@ import {
 } from '../services/dbService';
 import { PageHeader, SectionCard, DataTable, DataTableColumn } from './ui';
 import { Player, Coach } from '../models';
+import { playerSchema, coachSchema } from '../validation/schemas';
 import { useProgram } from '../context/ProgramContext';
 import { showSuccessToast, showErrorToast, showInfoToast } from '../utils/toast';
 
@@ -48,6 +49,14 @@ const defaultCoachForm: CoachFormState = {
   name: '',
   role: '',
 };
+
+const playerFormSchema = playerSchema.extend({
+  jerseyNumber: playerSchema.shape.jerseyNumber.optional(),
+});
+
+const coachFormSchema = coachSchema.extend({
+  role: coachSchema.shape.role.optional(),
+});
 
 const TEAM_PLAYER_ID = 'team-placeholder-player';
 const TEAM_PLAYER_NUMBER = 100;
@@ -436,9 +445,24 @@ const TeamManager: React.FC = () => {
   };
 
   const handleSaveCoach = useCallback(async () => {
-    if (!teamId || !activeSeasonId || !coachForm.name.trim()) return;
-    setCoachSaving(true);
+    if (!teamId || !activeSeasonId) return;
     setCoachFeedback(null);
+
+    const parsed = coachFormSchema.safeParse({
+      name: coachForm.name.trim(),
+      role: coachForm.role.trim() || undefined,
+    });
+
+    if (!parsed.success) {
+      const message = parsed.error.issues[0]?.message ?? 'Please fix coach details.';
+      setCoachFeedback(message);
+      return;
+    }
+
+    const { name, role } = parsed.data;
+    const resolvedRole = role?.trim();
+
+    setCoachSaving(true);
     try {
       const next = [...coaches];
       if (editingCoachId) {
@@ -446,15 +470,15 @@ const TeamManager: React.FC = () => {
         if (index >= 0) {
           next[index] = {
             ...next[index],
-            name: coachForm.name.trim(),
-            role: coachForm.role.trim() || next[index].role,
+            name,
+            role: resolvedRole || next[index].role || 'assistant',
           };
         }
       } else {
         next.push({
           id: uuidv4(),
-          name: coachForm.name.trim(),
-          role: coachForm.role.trim() || 'assistant',
+          name,
+          role: resolvedRole || 'assistant',
         });
       }
       await updateSeasonCoaches(teamId, activeSeasonId, next);
