@@ -257,6 +257,7 @@ export interface Game {
   possessionClockStart?: number;
   homeTopSeconds?: number;
   awayTopSeconds?: number;
+  openingKickoffReceiver?: 'home' | 'away' | null; // Track who received opening kickoff for halftime logic
   
   // DEPRECATED: Use myTeamSnapshot.roster instead
   // Kept for backward compatibility during migration

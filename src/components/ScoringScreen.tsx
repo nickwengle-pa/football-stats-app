@@ -94,13 +94,6 @@ const quickActions = [
   { label: 'Scramble', type: PlayType.RUSH, yards: 0, color: 'green', category: 'pass-outcome' },
   { label: 'Penalty', type: PlayType.PENALTY, yards: 0, color: 'yellow', category: 'pass-outcome' },
   
-  // Defensive
-  { label: 'Tackle', type: PlayType.TACKLE, yards: 0, color: 'red', category: 'defense' },
-  { label: 'TFL', type: PlayType.TACKLE_FOR_LOSS, yards: 0, color: 'red', category: 'defense' },
-  { label: 'Sack', type: PlayType.SACK, yards: 0, color: 'red', category: 'defense' },
-  { label: 'INT', type: PlayType.INTERCEPTION, yards: 0, color: 'purple', category: 'defense' },
-  { label: 'Fumble Rec', type: PlayType.FUMBLE_RECOVERY, yards: 0, color: 'orange', category: 'defense' },
-  
   // Kicking
   { label: 'Kickoff', type: PlayType.KICKOFF, yards: 0, color: 'purple', category: 'kicking' },
   { label: 'Punt', type: PlayType.PUNT, yards: 0, color: 'gray', category: 'kicking' },
@@ -141,6 +134,12 @@ const ScoringScreen: React.FC = () => {
   const [playInput, setPlayInput] = useState<PlayInputState>(null);
   const { open: isPlayInputOpen, onOpen: onPlayInputOpen, onClose: onPlayInputClose } = useDisclosure();
 
+  // Defensive result state
+  const [defensiveResult, setDefensiveResult] = useState<{
+    type: 'tackle' | 'penalty' | null;
+    tacklers: Player[]; // Up to 3 players who made the tackle
+  } | null>(null);
+
   // Player selection state
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
   const [pendingPlay, setPendingPlay] = useState<{ type: PlayType; yards: number; side: 'home' | 'away' } | null>(null);
@@ -157,12 +156,21 @@ const ScoringScreen: React.FC = () => {
   const [editingPlay, setEditingPlay] = useState<Play | null>(null);
   const { open: isEditOpen, onOpen: onEditOpen, onClose: onEditClose } = useDisclosure();
   const [editForm, setEditForm] = useState({
+    playerId: '',
+    playType: '',
     yards: 0,
     quarter: 1,
     down: '',
     distance: '',
     yardLine: '',
   });
+  const [editTacklers, setEditTacklers] = useState<Player[]>([]);
+  const [editDefenseSearch, setEditDefenseSearch] = useState<string>('');
+  const [editPlayerSearch, setEditPlayerSearch] = useState<string>('');
+
+  // Quick stats panel
+  const { open: isStatsOpen, onOpen: onStatsOpen, onClose: onStatsClose } = useDisclosure();
+  const [statsView, setStatsView] = useState<'players' | 'reports'>('players');
 
   // Game clock state
   const [currentQuarter, setCurrentQuarter] = useState<number>(1);
@@ -181,6 +189,7 @@ const ScoringScreen: React.FC = () => {
   const [possessionClockStart, setPossessionClockStart] = useState<number>(12 * 60);
   const [homeTopSeconds, setHomeTopSeconds] = useState<number>(0);
   const [awayTopSeconds, setAwayTopSeconds] = useState<number>(0);
+  const [openingKickoffReceiver, setOpeningKickoffReceiver] = useState<'home' | 'away' | null>(null); // Track who received opening kickoff
   const [pendingPossessionReason, setPendingPossessionReason] = useState<string | null>(null);
   const [clockMinutes, setClockMinutes] = useState<number>(12);
   const [clockSeconds, setClockSeconds] = useState<number>(0);
@@ -287,6 +296,18 @@ const ScoringScreen: React.FC = () => {
     loadRoster();
   }, [teamId, activeSeasonId]);
 
+  // Update roster with recalculated stats when game changes
+  useEffect(() => {
+    if (game) {
+      const rosterWithStats = getMyTeamRoster(game);
+      console.log('Game roster with stats:', rosterWithStats);
+      if (rosterWithStats.length > 0) {
+        console.log('Sample player stats:', rosterWithStats[0]?.stats);
+        setRoster(rosterWithStats);
+      }
+    }
+  }, [game]);
+
   // Clock management
   useEffect(() => {
     if (isClockRunning && timeRemaining > 0) {
@@ -361,6 +382,24 @@ const ScoringScreen: React.FC = () => {
     const willSwapDirection = pendingQuarterChange.newQuarter === 2 || pendingQuarterChange.newQuarter === 4;
     if (willSwapDirection) {
       swapDirection();
+    }
+    
+    // Handle halftime kickoff (start of Q3)
+    // The team that received the opening kickoff kicks off at halftime
+    if (pendingQuarterChange.newQuarter === 3 && openingKickoffReceiver) {
+      const halftimeKickingTeam = openingKickoffReceiver; // The team that received opening kickoff now kicks
+      
+      await logGameEvent(
+        `Second half kickoff by ${halftimeKickingTeam === 'home' ? teamName : opponentName}`,
+        PlayType.OTHER
+      );
+      
+      // Setup kickoff modal for halftime kickoff
+      setPendingKickoff({ kickingTeam: halftimeKickingTeam });
+      setClockMinutes(Math.floor(timeRemaining / 60));
+      setClockSeconds(timeRemaining % 60);
+      setPendingPossessionReason(`Halftime kickoff by ${halftimeKickingTeam === 'home' ? teamName : opponentName}`);
+      onPossessionPromptOpen();
     }
     
     // Log quarter change to play-by-play
@@ -626,6 +665,7 @@ const ScoringScreen: React.FC = () => {
           if (snapshot.possessionClockStart !== undefined) setPossessionClockStart(snapshot.possessionClockStart);
           if (snapshot.homeTopSeconds !== undefined) setHomeTopSeconds(snapshot.homeTopSeconds);
           if (snapshot.awayTopSeconds !== undefined) setAwayTopSeconds(snapshot.awayTopSeconds);
+          if (snapshot.openingKickoffReceiver !== undefined) setOpeningKickoffReceiver(snapshot.openingKickoffReceiver);
           
           isInitialLoadRef.current = false; // Mark that initial load is complete
         }
@@ -655,6 +695,7 @@ const ScoringScreen: React.FC = () => {
         possessionClockStart,
         homeTopSeconds,
         awayTopSeconds,
+        openingKickoffReceiver,
       };
       
       try {
@@ -676,6 +717,9 @@ const ScoringScreen: React.FC = () => {
     homeTimeouts,
     awayTimeouts,
     possessionClockStart,
+    homeTopSeconds,
+    awayTopSeconds,
+    openingKickoffReceiver,
     homeTopSeconds,
     awayTopSeconds,
     // Note: Don't include 'game' to avoid save loops when Firestore updates
@@ -1189,6 +1233,11 @@ const ScoringScreen: React.FC = () => {
     const receivingTeam = kickingTeam === 'home' ? 'away' : 'home';
     
     try {
+      // If this is the opening kickoff (Q1, first play), track who received it
+      if (currentQuarter === 1 && openingKickoffReceiver === null) {
+        setOpeningKickoffReceiver(receivingTeam);
+      }
+      
       // Create the kickoff return play
       const returnYards = playInput.endYard - kickEndYard;
       const returnPlay: Play = {
@@ -1345,6 +1394,18 @@ const ScoringScreen: React.FC = () => {
     } else if (playInput.player) {
       participants.push({ playerId: playInput.player.id, role: 'rusher' });
     }
+    
+    // Add tacklers with proper credit calculation
+    if (defensiveResult?.type === 'tackle' && defensiveResult.tacklers.length > 0) {
+      const tackleCredit = defensiveResult.tacklers.length === 1 ? 1.0 : 0.5;
+      defensiveResult.tacklers.forEach(tackler => {
+        participants.push({ 
+          playerId: tackler.id, 
+          role: 'tackler',
+          credit: tackleCredit 
+        });
+      });
+    }
 
     // Build play description based on type
     let playDescription: string;
@@ -1358,6 +1419,18 @@ const ScoringScreen: React.FC = () => {
       playDescription = actualYards === 0
         ? `${playerName} - ${playInput.type} for no gain${driveLabel}`
         : `${playerName} - ${playInput.type} for ${actualYards} yards${driveLabel}`;
+    }
+    
+    // Add tackler info to description
+    if (defensiveResult?.type === 'tackle' && defensiveResult.tacklers.length > 0) {
+      const tacklerNames = defensiveResult.tacklers.map(t => `#${t.jerseyNumber} ${t.name}`).join(', ');
+      const tackleType = actualYards < 0 ? 'TFL' : 'Tackle';
+      playDescription += ` (${tackleType} by ${tacklerNames})`;
+    }
+    
+    // Add penalty note if applicable
+    if (defensiveResult?.type === 'penalty') {
+      playDescription += ' (Penalty on play)';
     }
 
     const play: Play = {
@@ -1509,6 +1582,8 @@ const ScoringScreen: React.FC = () => {
       onPlayInputClose();
       setPlayInput(null);
       setSelectedPlayType(null); // Reset play type selection
+      setDefensiveResult(null); // Clear defensive result
+      setDefenseSearch(''); // Clear defense search
     } catch (error) {
       console.error('Failed to add play', error);
       setFeedback({ status: 'error', message: 'Unable to add play. Try again.' });
@@ -1581,12 +1656,30 @@ const ScoringScreen: React.FC = () => {
   const openPlayEditor = (play: Play) => {
     setEditingPlay(play);
     setEditForm({
+      playerId: play.playerId || '',
+      playType: play.type,
       yards: play.yards,
       quarter: play.quarter || currentQuarter,
       down: play.down?.toString() || '',
       distance: play.distance || '',
       yardLine: play.yardLine?.toString() || '',
     });
+    
+    // Extract current tacklers from participants
+    const tacklerParticipants = play.participants?.filter(p => p.role === 'tackler') || [];
+    const tacklerPlayers: Player[] = [];
+    tacklerParticipants.forEach(tp => {
+      // Find the player - check both rosters based on play side
+      const opposingRoster = play.teamSide === 'home' ? (opponent?.roster || []) : roster;
+      const player = opposingRoster.find(p => p.id === tp.playerId);
+      if (player) {
+        tacklerPlayers.push(player);
+      }
+    });
+    setEditTacklers(tacklerPlayers);
+    setEditDefenseSearch('');
+    setEditPlayerSearch('');
+    
     onEditOpen();
   };
 
@@ -1594,13 +1687,39 @@ const ScoringScreen: React.FC = () => {
     if (!editingPlay || !game || !teamId || !activeSeasonId) return;
 
     try {
+      // Build updated participants array
+      let updatedParticipants = editingPlay.participants?.filter(p => p.role !== 'tackler') || [];
+      
+      // Add new tacklers with proper credit
+      if (editTacklers.length > 0) {
+        const tackleCredit = editTacklers.length === 1 ? 1.0 : 0.5;
+        const tacklerParticipants = editTacklers.map(t => ({
+          playerId: t.id,
+          role: 'tackler' as const,
+          credit: tackleCredit
+        }));
+        updatedParticipants = [...updatedParticipants, ...tacklerParticipants];
+      }
+      
+      // Build description with tackler info
+      const playerName = roster.find(p => p.id === editForm.playerId)?.name || 'Team';
+      let baseDescription = `${playerName} - ${editForm.playType} for ${editForm.yards} yards`;
+      if (editTacklers.length > 0) {
+        const tacklerNames = editTacklers.map(t => `#${t.jerseyNumber} ${t.name}`).join(', ');
+        const tackleType = editForm.yards < 0 ? 'TFL' : 'Tackle';
+        baseDescription += ` (${tackleType} by ${tacklerNames})`;
+      }
+      
       const updates: Partial<Play> = {
+        playerId: editForm.playerId,
+        type: editForm.playType as PlayType,
         yards: editForm.yards,
         quarter: editForm.quarter,
         down: editForm.down ? parseInt(editForm.down) : undefined,
         distance: editForm.distance || undefined,
         yardLine: editForm.yardLine ? parseInt(editForm.yardLine) : undefined,
-        description: `${roster.find(p => p.id === editingPlay.playerId)?.name || 'Team'} - ${editingPlay.type} for ${editForm.yards} yards`,
+        description: baseDescription,
+        participants: updatedParticipants.length > 0 ? updatedParticipants : undefined,
       };
 
       const updatedGame = editPlayAndRecalc(game, editingPlay.id, updates);
@@ -1750,8 +1869,8 @@ const ScoringScreen: React.FC = () => {
         subtitle={`${teamName} vs ${opponentName} - ${gameDate}`}
         actions={
           <HStack gap={2}>
-            <Button variant="outline" borderColor="brand.primary" color="brand.primary" onClick={() => navigate(`/stats/${gameId}`)}>
-              Player Stats
+            <Button variant="solid" colorScheme="blue" onClick={onStatsOpen}>
+              📊 Quick Stats
             </Button>
             <Button variant="outline" borderColor="brand.primary" color="brand.primary" onClick={() => navigate('/')}>
               Back to Schedule
@@ -2295,29 +2414,6 @@ const ScoringScreen: React.FC = () => {
             </Box>
           )}
 
-          {/* Defensive Plays */}
-          <Box>
-            <Text fontSize="sm" fontWeight="600" mb={2} color="yellow.400" textTransform="uppercase">🛡️ Defense</Text>
-            <Grid templateColumns={{ base: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }} gap={2}>
-              {quickActions.filter(a => a.category === 'defense').map((action) => (
-                <Button
-                  key={action.label}
-                  bg={action.color === 'red' ? 'red.600' : action.color === 'purple' ? 'purple.600' : 'orange.600'}
-                  color="white"
-                  _hover={{ 
-                    bg: action.color === 'red' ? 'red.500' : action.color === 'purple' ? 'purple.500' : 'orange.500',
-                    transform: 'scale(1.05)'
-                  }}
-                  transition="all 0.2s"
-                  onClick={() => initiatePlay(action.type, action.yards)}
-                  size="md"
-                  fontWeight="700"
-                >
-                  {action.label}
-                </Button>
-              ))}
-            </Grid>
-          </Box>
 
           {/* Kicking Plays */}
           <Box>
@@ -2581,46 +2677,124 @@ const ScoringScreen: React.FC = () => {
             overflow="hidden"
           >
             <Stack gap={0}>
-              <Box px={6} py={4} borderBottom="1px solid" borderColor="border.subtle">
-                <Text fontSize="xl" fontWeight="600">Edit Play</Text>
+              <Box px={4} py={3} borderBottom="1px solid" borderColor="border.subtle">
+                <Text fontSize="lg" fontWeight="600">Edit Play</Text>
               </Box>
-              <Box px={6} py={4} overflowY="auto">
-                <Stack gap={4}>
+              <Box px={4} py={3} overflowY="auto">
+                <Stack gap={3}>
+                  {/* Player Selection */}
                   <Box>
-                    <Text fontSize="sm" fontWeight="600" mb={2}>Player</Text>
-                    <Text fontSize="md">{roster.find(p => p.id === editingPlay.playerId)?.name || 'Team'}</Text>
-                  </Box>
-                  <Box>
-                    <Text fontSize="sm" fontWeight="600" mb={2}>Play Type</Text>
-                    <Text fontSize="md">{editingPlay.type}</Text>
-                  </Box>
-                  <Box>
-                    <Text fontSize="sm" fontWeight="600" mb={2}>Yards</Text>
+                    <Text fontSize="xs" fontWeight="600" mb={1}>Player</Text>
                     <Input
-                      type="number"
-                      value={editForm.yards}
-                      onChange={(e) => setEditForm({ ...editForm, yards: parseInt(e.target.value) || 0 })}
-                      placeholder="Yards gained/lost"
+                      placeholder="Search jersey # or name..."
+                      value={editPlayerSearch}
+                      onChange={(e) => setEditPlayerSearch(e.target.value)}
+                      size="sm"
+                      mb={2}
                     />
+                    {(() => {
+                      const searchLower = editPlayerSearch.toLowerCase().trim();
+                      const filteredRoster = searchLower === ''
+                        ? []
+                        : roster.filter((p: Player) =>
+                            p.jerseyNumber?.toString() === searchLower ||
+                            p.name.toLowerCase().includes(searchLower)
+                          );
+                      
+                      const selectedPlayer = roster.find(p => p.id === editForm.playerId);
+                      
+                      return (
+                        <>
+                          {selectedPlayer && (
+                            <Box p={2} bg="blue.50" borderRadius="md" border="1px solid" borderColor="blue.200" mb={2}>
+                              <Text fontSize="sm" fontWeight="600">
+                                #{selectedPlayer.jerseyNumber} {selectedPlayer.name}
+                              </Text>
+                            </Box>
+                          )}
+                          {filteredRoster.length > 0 && (
+                            <SimpleGrid columns={3} gap={1} maxH="100px" overflowY="auto">
+                              {filteredRoster.map((player: Player) => (
+                                <Button
+                                  key={player.id}
+                                  onClick={() => {
+                                    setEditForm({ ...editForm, playerId: player.id });
+                                    setEditPlayerSearch('');
+                                  }}
+                                  size="xs"
+                                  variant="outline"
+                                  borderColor="blue.300"
+                                  _hover={{ bg: 'blue.50' }}
+                                >
+                                  <Text fontSize="xs">
+                                    #{player.jerseyNumber} {player.name.split(' ')[0]}
+                                  </Text>
+                                </Button>
+                              ))}
+                            </SimpleGrid>
+                          )}
+                        </>
+                      );
+                    })()}
                   </Box>
+                  
+                  {/* Play Type */}
                   <Box>
-                    <Text fontSize="sm" fontWeight="600" mb={2}>Quarter</Text>
-                    <SimpleGrid columns={4} gap={2}>
-                      {[1, 2, 3, 4].map((q) => (
-                        <Button
-                          key={q}
-                          variant={editForm.quarter === q ? 'solid' : 'outline'}
-                          colorScheme={editForm.quarter === q ? 'blue' : 'gray'}
-                          onClick={() => setEditForm({ ...editForm, quarter: q })}
-                        >
-                          Q{q}
-                        </Button>
-                      ))}
+                    <Text fontSize="xs" fontWeight="600" mb={1}>Play Type</Text>
+                    <SimpleGrid columns={4} gap={1}>
+                      {['Rush', 'Pass', 'Kickoff', 'Punt'].map((type) => {
+                        const playTypeLower = editForm.playType.toLowerCase();
+                        const isSelected = 
+                          playTypeLower === type.toLowerCase() ||
+                          (type === 'Pass' && playTypeLower.includes('pass'));
+                        return (
+                          <Button
+                            key={type}
+                            size="sm"
+                            variant={isSelected ? 'solid' : 'outline'}
+                            colorScheme={isSelected ? 'blue' : 'gray'}
+                            onClick={() => setEditForm({ ...editForm, playType: type })}
+                          >
+                            {type}
+                          </Button>
+                        );
+                      })}
                     </SimpleGrid>
                   </Box>
-                  <Stack direction="row" gap={4}>
+                  
+                  <HStack gap={3}>
                     <Box flex={1}>
-                      <Text fontSize="sm" fontWeight="600" mb={2}>Down</Text>
+                      <Text fontSize="xs" fontWeight="600" mb={1}>Yards</Text>
+                      <Input
+                        type="number"
+                        value={editForm.yards}
+                        onChange={(e) => setEditForm({ ...editForm, yards: parseInt(e.target.value) || 0 })}
+                        placeholder="Yards"
+                        size="sm"
+                      />
+                    </Box>
+                    <Box flex={1}>
+                      <Text fontSize="xs" fontWeight="600" mb={1}>Quarter</Text>
+                      <HStack gap={1}>
+                        {[1, 2, 3, 4].map((q) => (
+                          <Button
+                            key={q}
+                            size="sm"
+                            variant={editForm.quarter === q ? 'solid' : 'outline'}
+                            colorScheme={editForm.quarter === q ? 'blue' : 'gray'}
+                            onClick={() => setEditForm({ ...editForm, quarter: q })}
+                            flex={1}
+                          >
+                            {q}
+                          </Button>
+                        ))}
+                      </HStack>
+                    </Box>
+                  </HStack>
+                  
+                  <HStack gap={3}>
+                    <Box flex={1}>
+                      <Text fontSize="xs" fontWeight="600" mb={1}>Down</Text>
                       <Input
                         type="number"
                         value={editForm.down}
@@ -2628,39 +2802,128 @@ const ScoringScreen: React.FC = () => {
                         placeholder="1-4"
                         min={1}
                         max={4}
+                        size="sm"
                       />
                     </Box>
                     <Box flex={1}>
-                      <Text fontSize="sm" fontWeight="600" mb={2}>Distance</Text>
+                      <Text fontSize="xs" fontWeight="600" mb={1}>Distance</Text>
                       <Input
                         value={editForm.distance}
                         onChange={(e) => setEditForm({ ...editForm, distance: e.target.value })}
                         placeholder="10"
+                        size="sm"
                       />
                     </Box>
-                  </Stack>
-                  <Box>
-                    <Text fontSize="sm" fontWeight="600" mb={2}>Yard Line</Text>
+                    <Box flex={1}>
+                      <Text fontSize="xs" fontWeight="600" mb={1}>Yard Line</Text>
+                      <Input
+                        type="number"
+                        value={editForm.yardLine}
+                        onChange={(e) => setEditForm({ ...editForm, yardLine: e.target.value })}
+                        placeholder="50"
+                        min={1}
+                        max={99}
+                        size="sm"
+                      />
+                    </Box>
+                  </HStack>
+                  
+                  {/* Tackler Selection */}
+                  <Box p={3} bg="gray.50" borderRadius="md" border="1px solid" borderColor="gray.200">
+                    <HStack justify="space-between" mb={2}>
+                      <Text fontSize="xs" fontWeight="600">
+                        Tacklers {editForm.yards < 0 && <Badge colorScheme="red" ml={1} fontSize="xs">TFL</Badge>}
+                      </Text>
+                      <Text fontSize="xs" color="gray.500">
+                        {editTacklers.length === 1 ? '1.0 credit' : editTacklers.length > 1 ? '0.5 credit each' : 'Up to 3'}
+                      </Text>
+                    </HStack>
                     <Input
-                      type="number"
-                      value={editForm.yardLine}
-                      onChange={(e) => setEditForm({ ...editForm, yardLine: e.target.value })}
-                      placeholder="50"
-                      min={1}
-                      max={99}
+                      placeholder="Search jersey # or name..."
+                      value={editDefenseSearch}
+                      onChange={(e) => setEditDefenseSearch(e.target.value)}
+                      bg="white"
+                      borderColor="gray.300"
+                      mb={2}
+                      size="sm"
                     />
+                    {(() => {
+                      // Get opponent roster for defensive player selection
+                      const opposingRoster = editingPlay.teamSide === 'home' 
+                        ? (opponent?.roster || [])
+                        : roster;
+                      
+                      const searchLower = editDefenseSearch.toLowerCase().trim();
+                      const filteredOpposingRoster = searchLower === ''
+                        ? opposingRoster
+                        : opposingRoster.filter((p: Player) =>
+                            p.jerseyNumber?.toString() === searchLower ||
+                            p.name.toLowerCase().includes(searchLower)
+                          );
+                      
+                      return (
+                        <>
+                          {filteredOpposingRoster.length === 0 ? (
+                            <Text textAlign="center" color="gray.500" py={2} fontSize="xs">
+                              No players found
+                            </Text>
+                          ) : (
+                            <SimpleGrid columns={3} gap={1} maxH="120px" overflowY="auto">
+                              {filteredOpposingRoster.map((player: Player, idx: number) => {
+                                const isSelected = editTacklers.some(t => t.id === player.id);
+                                return (
+                                  <Button
+                                    key={`edit-tackler-${player.id}-${idx}`}
+                                    onClick={() => {
+                                      if (isSelected) {
+                                        setEditTacklers(editTacklers.filter(t => t.id !== player.id));
+                                      } else if (editTacklers.length < 3) {
+                                        setEditTacklers([...editTacklers, player]);
+                                      }
+                                      setEditDefenseSearch('');
+                                    }}
+                                    size="xs"
+                                    h="auto"
+                                    py={1}
+                                    px={2}
+                                    variant="outline"
+                                    borderColor={isSelected ? 'red.500' : 'gray.300'}
+                                    bg={isSelected ? 'red.50' : 'white'}
+                                    _hover={{ borderColor: 'red.400', bg: isSelected ? 'red.100' : 'gray.50' }}
+                                    disabled={!isSelected && editTacklers.length >= 3}
+                                  >
+                                    <Text fontSize="xs" fontWeight={isSelected ? '600' : '500'}>
+                                      #{player.jerseyNumber} {player.name.split(' ')[0]}
+                                    </Text>
+                                  </Button>
+                                );
+                              })}
+                            </SimpleGrid>
+                          )}
+                          {editTacklers.length > 0 && (
+                            <HStack mt={2} flexWrap="wrap" gap={1}>
+                              {editTacklers.map(t => (
+                                <Badge key={t.id} colorScheme="red" fontSize="xs">
+                                  #{t.jerseyNumber} {t.name}
+                                </Badge>
+                              ))}
+                            </HStack>
+                          )}
+                        </>
+                      );
+                    })()}
                   </Box>
                 </Stack>
               </Box>
-              <Box px={6} py={4} borderTop="1px solid" borderColor="border.subtle">
-                <Stack direction="row" gap={2}>
-                  <Button colorScheme="blue" onClick={savePlayEdits} flex={1}>
-                    Save Changes
+              <Box px={4} py={3} borderTop="1px solid" borderColor="border.subtle">
+                <HStack gap={2}>
+                  <Button colorScheme="blue" onClick={savePlayEdits} flex={1} size="sm">
+                    Save
                   </Button>
-                  <Button variant="ghost" onClick={onEditClose} flex={1}>
+                  <Button variant="ghost" onClick={onEditClose} flex={1} size="sm">
                     Cancel
                   </Button>
-                </Stack>
+                </HStack>
               </Box>
             </Stack>
           </Box>
@@ -2704,6 +2967,7 @@ const ScoringScreen: React.FC = () => {
               setJerseySearch('');
               setPasserSearch('');
               setReceiverSearch('');
+              setDefensiveResult(null);
             }}
           />
           <Box
@@ -3349,6 +3613,153 @@ const ScoringScreen: React.FC = () => {
                         </Text>
                         </>
                       )}
+                  </Box>
+                  )}
+                  
+                  {/* Defensive Result Section */}
+                  {!showPlayerSelection && (
+                  <Box mt={4} p={4} bg="rgba(0, 0, 0, 0.3)" borderRadius="md" border="1px solid" borderColor="gray.600">
+                    <Text fontSize="md" fontWeight="700" color="purple.400" mb={3}>
+                      🛡️ Defensive Result (Optional)
+                    </Text>
+                    <Text fontSize="xs" color="gray.400" mb={3}>
+                      Add tackle credits or penalty
+                    </Text>
+                    <Grid templateColumns="repeat(2, 1fr)" gap={2}>
+                      <Button
+                        size="sm"
+                        bg={defensiveResult?.type === 'tackle' ? 'red.600' : 'gray.700'}
+                        color="white"
+                        _hover={{ bg: defensiveResult?.type === 'tackle' ? 'red.500' : 'gray.600' }}
+                        onClick={() => setDefensiveResult(
+                          defensiveResult?.type === 'tackle' 
+                            ? null 
+                            : { type: 'tackle', tacklers: [] }
+                        )}
+                      >
+                        �️ Tackle
+                      </Button>
+                      <Button
+                        size="sm"
+                        bg={defensiveResult?.type === 'penalty' ? 'yellow.600' : 'gray.700'}
+                        color="white"
+                        _hover={{ bg: defensiveResult?.type === 'penalty' ? 'yellow.500' : 'gray.600' }}
+                        onClick={() => setDefensiveResult(
+                          defensiveResult?.type === 'penalty' 
+                            ? null 
+                            : { type: 'penalty', tacklers: [] }
+                        )}
+                      >
+                        🚩 Penalty
+                      </Button>
+                    </Grid>
+                    
+                    {/* Tackle Player Selection */}
+                    {defensiveResult?.type === 'tackle' && (
+                      <Box mt={3} p={3} bg="rgba(0, 0, 0, 0.4)" borderRadius="md">
+                        <Text fontSize="sm" fontWeight="600" color="gray.300" mb={2}>
+                          Select Tacklers (up to 3 players)
+                          {playInput.yards < 0 && <Badge colorScheme="red" ml={2}>TFL</Badge>}
+                        </Text>
+                        <Input
+                          placeholder="Search by jersey # or name..."
+                          value={defenseSearch}
+                          onChange={(e) => setDefenseSearch(e.target.value)}
+                          bg="rgba(0, 0, 0, 0.4)"
+                          borderColor="gray.600"
+                          color="white"
+                          _placeholder={{ color: 'gray.400' }}
+                          mb={3}
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                        />
+                        {(() => {
+                          // Get opponent roster for defensive player selection
+                          const opposingRoster = playInput.side === 'home' 
+                            ? (opponent?.roster || [])
+                            : roster;
+                          
+                          const searchLower = defenseSearch.toLowerCase().trim();
+                          const filteredOpposingRoster = searchLower === ''
+                            ? opposingRoster
+                            : opposingRoster.filter((p: Player) =>
+                                p.jerseyNumber?.toString() === searchLower ||
+                                p.name.toLowerCase().includes(searchLower)
+                              );
+                          
+                          return filteredOpposingRoster.length === 0 ? (
+                            <Text textAlign="center" color="gray.400" py={4}>
+                              No players found
+                            </Text>
+                          ) : (
+                            <SimpleGrid columns={2} gap={2} maxH="200px" overflowY="auto">
+                              {filteredOpposingRoster.map((player: Player, idx: number) => {
+                                const isSelected = defensiveResult.tacklers.some(t => t.id === player.id);
+                                return (
+                                  <Button
+                                    key={`tackler-${player.id}-${idx}`}
+                                    onClick={() => {
+                                      if (isSelected) {
+                                        // Remove player
+                                        setDefensiveResult({
+                                          ...defensiveResult,
+                                          tacklers: defensiveResult.tacklers.filter(t => t.id !== player.id)
+                                        });
+                                      } else if (defensiveResult.tacklers.length < 3) {
+                                        // Add player (max 3)
+                                        setDefensiveResult({
+                                          ...defensiveResult,
+                                          tacklers: [...defensiveResult.tacklers, player]
+                                        });
+                                      }
+                                      setDefenseSearch('');
+                                    }}
+                                    h="auto"
+                                    py={2}
+                                    flexDirection="column"
+                                    variant="outline"
+                                    borderColor={isSelected ? 'red.400' : 'gray.600'}
+                                    bg={isSelected ? 'rgba(239, 68, 68, 0.2)' : 'rgba(0, 0, 0, 0.4)'}
+                                    color="white"
+                                    _hover={{ borderColor: 'red.400', bg: 'rgba(239, 68, 68, 0.15)' }}
+                                    disabled={!isSelected && defensiveResult.tacklers.length >= 3}
+                                  >
+                                    <Badge colorScheme={isSelected ? 'red' : 'gray'} mb={1}>
+                                      #{player.jerseyNumber}
+                                    </Badge>
+                                    <Text fontSize="sm" fontWeight="600">
+                                      {player.name}
+                                    </Text>
+                                    {isSelected && <Text fontSize="xs" color="red.300">✓</Text>}
+                                  </Button>
+                                );
+                              })}
+                            </SimpleGrid>
+                          );
+                        })()}
+                        {defensiveResult.tacklers.length > 0 && (
+                          <Box mt={2}>
+                            <Text fontSize="xs" color="gray.400" mb={1}>Selected:</Text>
+                            <Stack direction="row" flexWrap="wrap" gap={1}>
+                              {defensiveResult.tacklers.map(t => (
+                                <Badge key={t.id} colorScheme="red">
+                                  #{t.jerseyNumber} {t.name}
+                                </Badge>
+                              ))}
+                            </Stack>
+                          </Box>
+                        )}
+                      </Box>
+                    )}
+                    
+                    {/* Penalty Note */}
+                    {defensiveResult?.type === 'penalty' && (
+                      <Box mt={3} p={3} bg="rgba(0, 0, 0, 0.4)" borderRadius="md">
+                        <Text fontSize="sm" color="gray.300">
+                          🚩 Penalty on the play - Make sure to adjust the yards above to reflect the penalty result
+                        </Text>
+                      </Box>
+                    )}
                   </Box>
                   )}
                 </Stack>
@@ -4164,6 +4575,179 @@ const ScoringScreen: React.FC = () => {
                     Confirm
                   </Button>
                 </Stack>
+              </Box>
+            </Stack>
+          </Box>
+        </Portal>
+      )}
+
+      {/* Quick Stats Panel */}
+      {isStatsOpen && (
+        <Portal>
+          <Box
+            position="fixed"
+            top={0}
+            left={0}
+            right={0}
+            bottom={0}
+            bg="blackAlpha.600"
+            zIndex={1000}
+            onClick={onStatsClose}
+          />
+          <Box
+            position="fixed"
+            top={0}
+            right={0}
+            bottom={0}
+            w={{ base: '100%', md: '600px' }}
+            bg="white"
+            zIndex={1001}
+            boxShadow="-4px 0 20px rgba(0,0,0,0.3)"
+            overflowY="auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Stack gap={0} h="full">
+              {/* Header */}
+              <Box px={4} py={3} borderBottom="2px solid" borderColor="gray.200" bg="gray.50">
+                <HStack justify="space-between" mb={3}>
+                  <Text fontSize="xl" fontWeight="700">Quick Stats</Text>
+                  <Button size="sm" variant="ghost" onClick={onStatsClose}>✕</Button>
+                </HStack>
+                <HStack gap={2}>
+                  <Button
+                    size="sm"
+                    colorScheme={statsView === 'players' ? 'blue' : 'gray'}
+                    variant={statsView === 'players' ? 'solid' : 'outline'}
+                    onClick={() => setStatsView('players')}
+                    flex={1}
+                  >
+                    Player Stats
+                  </Button>
+                  <Button
+                    size="sm"
+                    colorScheme={statsView === 'reports' ? 'blue' : 'gray'}
+                    variant={statsView === 'reports' ? 'solid' : 'outline'}
+                    onClick={() => setStatsView('reports')}
+                    flex={1}
+                  >
+                    Team Reports
+                  </Button>
+                </HStack>
+              </Box>
+
+              {/* Content */}
+              <Box flex={1} p={4}>
+                {statsView === 'players' ? (
+                  <Stack gap={4}>
+                    <Text fontSize="lg" fontWeight="600">Player Statistics</Text>
+                    <Box overflowX="auto">
+                      {(() => {
+                        console.log('Quick Stats - Roster length:', roster.length);
+                        console.log('Quick Stats - First player:', roster[0]);
+                        const playersWithStats = roster.filter(p => 
+                          (p.stats.rushingYards || 0) > 0 ||
+                          (p.stats.passingYards || 0) > 0 ||
+                          (p.stats.receivingYards || 0) > 0 ||
+                          (p.stats.rushingTouchdowns || 0) > 0 ||
+                          (p.stats.passingTouchdowns || 0) > 0 ||
+                          (p.stats.tackles || 0) > 0
+                        );
+                        console.log('Quick Stats - Players with stats:', playersWithStats.length);
+                        return null;
+                      })()}
+                      <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                            <th style={{ textAlign: 'left', padding: '8px', fontWeight: '600' }}>#</th>
+                            <th style={{ textAlign: 'left', padding: '8px', fontWeight: '600' }}>Player</th>
+                            <th style={{ textAlign: 'center', padding: '8px', fontWeight: '600' }}>Rush Yds</th>
+                            <th style={{ textAlign: 'center', padding: '8px', fontWeight: '600' }}>Pass Yds</th>
+                            <th style={{ textAlign: 'center', padding: '8px', fontWeight: '600' }}>Rec Yds</th>
+                            <th style={{ textAlign: 'center', padding: '8px', fontWeight: '600' }}>TDs</th>
+                            <th style={{ textAlign: 'center', padding: '8px', fontWeight: '600' }}>Tackles</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {roster
+                            .filter(p => 
+                              (p.stats.rushingYards || 0) > 0 ||
+                              (p.stats.passingYards || 0) > 0 ||
+                              (p.stats.receivingYards || 0) > 0 ||
+                              (p.stats.rushingTouchdowns || 0) > 0 ||
+                              (p.stats.passingTouchdowns || 0) > 0 ||
+                              (p.stats.tackles || 0) > 0
+                            )
+                            .sort((a, b) => {
+                              const totalA = (a.stats.rushingYards || 0) + (a.stats.passingYards || 0) + (a.stats.receivingYards || 0);
+                              const totalB = (b.stats.rushingYards || 0) + (b.stats.passingYards || 0) + (b.stats.receivingYards || 0);
+                              return totalB - totalA;
+                            })
+                            .map((player) => (
+                              <tr key={player.id} style={{ borderBottom: '1px solid #f7fafc' }}>
+                                <td style={{ padding: '8px' }}>#{player.jerseyNumber}</td>
+                                <td style={{ padding: '8px', fontWeight: '500' }}>{player.name}</td>
+                                <td style={{ padding: '8px', textAlign: 'center' }}>{player.stats.rushingYards || 0}</td>
+                                <td style={{ padding: '8px', textAlign: 'center' }}>{player.stats.passingYards || 0}</td>
+                                <td style={{ padding: '8px', textAlign: 'center' }}>{player.stats.receivingYards || 0}</td>
+                                <td style={{ padding: '8px', textAlign: 'center' }}>
+                                  {(player.stats.rushingTouchdowns || 0) + (player.stats.passingTouchdowns || 0)}
+                                </td>
+                                <td style={{ padding: '8px', textAlign: 'center' }}>{player.stats.tackles || 0}</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                      {roster.filter(p => 
+                        (p.stats.rushingYards || 0) > 0 ||
+                        (p.stats.passingYards || 0) > 0 ||
+                        (p.stats.receivingYards || 0) > 0 ||
+                        (p.stats.rushingTouchdowns || 0) > 0 ||
+                        (p.stats.passingTouchdowns || 0) > 0 ||
+                        (p.stats.tackles || 0) > 0
+                      ).length === 0 && (
+                        <Text textAlign="center" color="gray.500" py={8}>
+                          No stats recorded yet
+                        </Text>
+                      )}
+                    </Box>
+                  </Stack>
+                ) : (
+                  <Stack gap={4}>
+                    <Text fontSize="lg" fontWeight="600">Team Reports</Text>
+                    <Stack gap={3}>
+                      <Box p={3} bg="blue.50" borderRadius="md" border="1px solid" borderColor="blue.200">
+                        <Text fontSize="sm" fontWeight="600" mb={2}>Total Offense</Text>
+                        <Text fontSize="2xl" fontWeight="700">
+                          {roster.reduce((sum, p) => sum + (p.stats.rushingYards || 0) + (p.stats.passingYards || 0) + (p.stats.receivingYards || 0), 0)} yards
+                        </Text>
+                      </Box>
+                      <Box p={3} bg="green.50" borderRadius="md" border="1px solid" borderColor="green.200">
+                        <Text fontSize="sm" fontWeight="600" mb={2}>Rushing</Text>
+                        <Text fontSize="xl" fontWeight="600">
+                          {roster.reduce((sum, p) => sum + (p.stats.rushingYards || 0), 0)} yards
+                        </Text>
+                      </Box>
+                      <Box p={3} bg="purple.50" borderRadius="md" border="1px solid" borderColor="purple.200">
+                        <Text fontSize="sm" fontWeight="600" mb={2}>Passing</Text>
+                        <Text fontSize="xl" fontWeight="600">
+                          {roster.reduce((sum, p) => sum + (p.stats.passingYards || 0), 0)} yards
+                        </Text>
+                      </Box>
+                      <Box p={3} bg="red.50" borderRadius="md" border="1px solid" borderColor="red.200">
+                        <Text fontSize="sm" fontWeight="600" mb={2}>Turnovers</Text>
+                        <Text fontSize="xl" fontWeight="600">
+                          {roster.reduce((sum, p) => sum + (p.stats.interceptions || 0) + (p.stats.fumblesLost || 0), 0)}
+                        </Text>
+                      </Box>
+                      <Box p={3} bg="gray.50" borderRadius="md" border="1px solid" borderColor="gray.200">
+                        <Text fontSize="sm" fontWeight="600" mb={2}>Total Plays</Text>
+                        <Text fontSize="xl" fontWeight="600">
+                          {game.plays?.length || 0}
+                        </Text>
+                      </Box>
+                    </Stack>
+                  </Stack>
+                )}
               </Box>
             </Stack>
           </Box>
