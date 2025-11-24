@@ -20,7 +20,6 @@ import {
   Portal,
   HStack,
   Flex,
-  Table,
 } from '@chakra-ui/react';
 import { Game, Play, PlayType, Player, OpponentTeam, HashMark, OffensiveFormation, DefensiveFormation } from '../models';
 import { subscribeToGame, saveGame, listOpponents, getSeasonRoster } from '../services/dbService';
@@ -34,7 +33,6 @@ import { PageHeader, SectionCard } from './ui';
 import { YardKeypad } from './ui/YardKeypad';
 import { useProgram } from '../context/ProgramContext';
 import { getOpponentName, getMyTeamRoster } from '../utils/gameUtils';
-import { EnhancedPlayByPlayTable } from './EnhancedPlayByPlayTable';
 
 type FeedbackState = {
   status: 'success' | 'error' | 'info';
@@ -434,6 +432,10 @@ const ScoringScreen: React.FC = () => {
 
   // Play type selection state (Run or Pass)
   const [selectedPlayType, setSelectedPlayType] = useState<'run' | 'pass' | null>(null);
+  const [inlinePasserSearch, setInlinePasserSearch] = useState<string>('');
+  const [inlineReceiverSearch, setInlineReceiverSearch] = useState<string>('');
+  const [inlineRusherSearch, setInlineRusherSearch] = useState<string>('');
+  const [inlineDefenseSearch, setInlineDefenseSearch] = useState<string>('');
 
   // Load roster from season
   useEffect(() => {
@@ -1051,6 +1053,11 @@ const ScoringScreen: React.FC = () => {
   }, [game, teamId]);
 
   const opponentName = useMemo(() => (game ? getOpponentName(game) : 'Opponent'), [game]);
+  const activeRosterForSide = useCallback(
+    (side: 'home' | 'away') =>
+      side === 'away' && opponent?.roster ? opponent.roster : roster,
+    [opponent, roster]
+  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1320,6 +1327,59 @@ const ScoringScreen: React.FC = () => {
       p.name.toLowerCase().includes(receiverSearch.toLowerCase())
     );
   }, [roster, opponent, playInput, receiverSearch]);
+
+  // Inline player selectors (lightweight search lists)
+  const inlinePasserList = useMemo(() => {
+    const active = activeRosterForSide(playInput?.side || possession);
+    const term = inlinePasserSearch.trim().toLowerCase();
+    return active
+      .filter(
+        (p) =>
+          !term ||
+          p.name.toLowerCase().includes(term) ||
+          p.jerseyNumber?.toString().includes(term)
+      )
+      .slice(0, 6);
+  }, [activeRosterForSide, inlinePasserSearch, playInput, possession]);
+
+  const inlineReceiverList = useMemo(() => {
+    const active = activeRosterForSide(playInput?.side || possession);
+    const term = inlineReceiverSearch.trim().toLowerCase();
+    return active
+      .filter(
+        (p) =>
+          !term ||
+          p.name.toLowerCase().includes(term) ||
+          p.jerseyNumber?.toString().includes(term)
+      )
+      .slice(0, 6);
+  }, [activeRosterForSide, inlineReceiverSearch, playInput, possession]);
+
+  const inlineRusherList = useMemo(() => {
+    const active = activeRosterForSide(playInput?.side || possession);
+    const term = inlineRusherSearch.trim().toLowerCase();
+    return active
+      .filter(
+        (p) =>
+          !term ||
+          p.name.toLowerCase().includes(term) ||
+          p.jerseyNumber?.toString().includes(term)
+      )
+      .slice(0, 6);
+  }, [activeRosterForSide, inlineRusherSearch, playInput, possession]);
+
+  const inlineDefenseList = useMemo(() => {
+    const active = activeRosterForSide(playInput?.side === 'home' ? 'away' : 'home');
+    const term = inlineDefenseSearch.trim().toLowerCase();
+    return active
+      .filter(
+        (p) =>
+          !term ||
+          p.name.toLowerCase().includes(term) ||
+          p.jerseyNumber?.toString().includes(term)
+      )
+      .slice(0, 6);
+  }, [activeRosterForSide, inlineDefenseSearch, playInput]);
 
   // Auto-select player when exact jersey number match is found
   useEffect(() => {
@@ -3057,6 +3117,178 @@ const ScoringScreen: React.FC = () => {
         )}
       </Box>
 
+      {/* Inline player selection (keeps modals intact, just adds quick selectors) */}
+      <Box
+        bg="linear-gradient(135deg, #0e1726 0%, #0c1a2f 100%)"
+        borderRadius="xl"
+        p={6}
+        border="3px solid"
+        borderColor="blue.500"
+        boxShadow="0 8px 32px rgba(0, 0, 0, 0.3)"
+      >
+        <Text fontSize="xl" fontWeight="700" mb={4} color="white" textTransform="uppercase">
+          ⚡ Inline Player Selection (Beta)
+        </Text>
+        {!playInput ? (
+          <Text color="gray.400">Start a play to enable quick player assignment.</Text>
+        ) : (
+          <SimpleGrid columns={{ base: 1, md: 2 }} gap={4}>
+            <Box border="1px solid" borderColor="gray.700" borderRadius="lg" p={4} bg="blackAlpha.400">
+              <Text fontWeight="700" color="blue.200" mb={2}>Passer</Text>
+              <HStack mb={2}>
+                <Input
+                  placeholder="Search passer (# or name)"
+                  value={inlinePasserSearch}
+                  onChange={(e) => setInlinePasserSearch(e.target.value)}
+                  bg="gray.800"
+                  color="white"
+                  _placeholder={{ color: 'gray.500' }}
+                  size="sm"
+                />
+                {playInput?.passer && (
+                  <Badge colorScheme="blue">
+                    QB #{playInput.passer.jerseyNumber} {playInput.passer.name}
+                  </Badge>
+                )}
+              </HStack>
+              <HStack flexWrap="wrap" gap={2} mb={2}>
+                {lastPasser && (
+                  <Button size="xs" onClick={() => setPlayInput((prev) => prev ? { ...prev, passer: lastPasser } : prev)}>
+                    Recent: #{lastPasser.jerseyNumber} {lastPasser.name}
+                  </Button>
+                )}
+              </HStack>
+              <SimpleGrid columns={{ base: 1, sm: 2 }} gap={2}>
+                {inlinePasserList.map((p) => (
+                  <Button
+                    key={`inline-passer-${p.id}`}
+                    size="sm"
+                    variant={playInput?.passer?.id === p.id ? 'solid' : 'outline'}
+                    colorScheme="blue"
+                    onClick={() => setPlayInput((prev) => prev ? { ...prev, passer: p } : prev)}
+                  >
+                    #{p.jerseyNumber} {p.name}
+                  </Button>
+                ))}
+              </SimpleGrid>
+            </Box>
+
+            <Box border="1px solid" borderColor="gray.700" borderRadius="lg" p={4} bg="blackAlpha.400">
+              <Text fontWeight="700" color="green.200" mb={2}>Receiver</Text>
+              <HStack mb={2}>
+                <Input
+                  placeholder="Search receiver (# or name)"
+                  value={inlineReceiverSearch}
+                  onChange={(e) => setInlineReceiverSearch(e.target.value)}
+                  bg="gray.800"
+                  color="white"
+                  _placeholder={{ color: 'gray.500' }}
+                  size="sm"
+                />
+                {playInput?.receiver && (
+                  <Badge colorScheme="green">
+                    WR #{playInput.receiver.jerseyNumber} {playInput.receiver.name}
+                  </Badge>
+                )}
+              </HStack>
+              <HStack flexWrap="wrap" gap={2} mb={2}>
+                {lastReceiver && (
+                  <Button size="xs" onClick={() => setPlayInput((prev) => prev ? { ...prev, receiver: lastReceiver } : prev)}>
+                    Recent: #{lastReceiver.jerseyNumber} {lastReceiver.name}
+                  </Button>
+                )}
+              </HStack>
+              <SimpleGrid columns={{ base: 1, sm: 2 }} gap={2}>
+                {inlineReceiverList.map((p) => (
+                  <Button
+                    key={`inline-receiver-${p.id}`}
+                    size="sm"
+                    variant={playInput?.receiver?.id === p.id ? 'solid' : 'outline'}
+                    colorScheme="green"
+                    onClick={() => setPlayInput((prev) => prev ? { ...prev, receiver: p } : prev)}
+                  >
+                    #{p.jerseyNumber} {p.name}
+                  </Button>
+                ))}
+              </SimpleGrid>
+            </Box>
+
+            <Box border="1px solid" borderColor="gray.700" borderRadius="lg" p={4} bg="blackAlpha.400">
+              <Text fontWeight="700" color="yellow.200" mb={2}>Rusher / Ball Carrier</Text>
+              <HStack mb={2}>
+                <Input
+                  placeholder="Search rusher (# or name)"
+                  value={inlineRusherSearch}
+                  onChange={(e) => setInlineRusherSearch(e.target.value)}
+                  bg="gray.800"
+                  color="white"
+                  _placeholder={{ color: 'gray.500' }}
+                  size="sm"
+                />
+                {playInput?.player && (
+                  <Badge colorScheme="yellow">
+                    RB #{playInput.player.jerseyNumber} {playInput.player.name}
+                  </Badge>
+                )}
+              </HStack>
+              <HStack flexWrap="wrap" gap={2} mb={2}>
+                {lastRusher && (
+                  <Button size="xs" onClick={() => setPlayInput((prev) => prev ? { ...prev, player: lastRusher } : prev)}>
+                    Recent: #{lastRusher.jerseyNumber} {lastRusher.name}
+                  </Button>
+                )}
+              </HStack>
+              <SimpleGrid columns={{ base: 1, sm: 2 }} gap={2}>
+                {inlineRusherList.map((p) => (
+                  <Button
+                    key={`inline-rusher-${p.id}`}
+                    size="sm"
+                    variant={playInput?.player?.id === p.id ? 'solid' : 'outline'}
+                    colorScheme="yellow"
+                    onClick={() => setPlayInput((prev) => prev ? { ...prev, player: p } : prev)}
+                  >
+                    #{p.jerseyNumber} {p.name}
+                  </Button>
+                ))}
+              </SimpleGrid>
+            </Box>
+
+            <Box border="1px solid" borderColor="gray.700" borderRadius="lg" p={4} bg="blackAlpha.400">
+              <Text fontWeight="700" color="purple.200" mb={2}>Defender</Text>
+              <HStack mb={2}>
+                <Input
+                  placeholder="Search defender (# or name)"
+                  value={inlineDefenseSearch}
+                  onChange={(e) => setInlineDefenseSearch(e.target.value)}
+                  bg="gray.800"
+                  color="white"
+                  _placeholder={{ color: 'gray.500' }}
+                  size="sm"
+                />
+                {playInput?.defensivePlayer && (
+                  <Badge colorScheme="purple">
+                    #{playInput.defensivePlayer.jerseyNumber} {playInput.defensivePlayer.name}
+                  </Badge>
+                )}
+              </HStack>
+              <SimpleGrid columns={{ base: 1, sm: 2 }} gap={2}>
+                {inlineDefenseList.map((p) => (
+                  <Button
+                    key={`inline-def-${p.id}`}
+                    size="sm"
+                    variant={playInput?.defensivePlayer?.id === p.id ? 'solid' : 'outline'}
+                    colorScheme="purple"
+                    onClick={() => setPlayInput((prev) => prev ? { ...prev, defensivePlayer: p } : prev)}
+                  >
+                    #{p.jerseyNumber} {p.name}
+                  </Button>
+                ))}
+              </SimpleGrid>
+            </Box>
+          </SimpleGrid>
+        )}
+      </Box>
+
       <Box
         bg="linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)"
         borderRadius="xl"
@@ -3068,13 +3300,94 @@ const ScoringScreen: React.FC = () => {
         <Text fontSize="xl" fontWeight="700" mb={4} color="white" textTransform="uppercase">
           📋 Play-by-Play
         </Text>
-        <EnhancedPlayByPlayTable
-          game={game}
-          teamName={teamName}
-          opponentName={opponentName}
-          onEditPlay={(play) => openPlayEditor(play)}
-          onDeletePlay={(playId) => deletePlay(playId)}
-        />
+        {game.plays.length === 0 ? (
+          <Box 
+            textAlign="center" 
+            py={8}
+            bg="rgba(0, 0, 0, 0.3)"
+            borderRadius="lg"
+          >
+            <Text fontSize="md" color="gray.400">
+              No plays logged yet. Use the quick actions to start tracking the drive.
+            </Text>
+          </Box>
+        ) : (
+          <Box overflowX="auto" bg="rgba(0,0,0,0.25)" borderRadius="lg" border="1px solid" borderColor="gray.700">
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <thead style={{ background: 'rgba(0,0,0,0.5)' }}>
+                <tr>
+                  <th style={{ color: '#e2e8f0', padding: '8px', textAlign: 'left' }}>#</th>
+                  <th style={{ color: '#e2e8f0', padding: '8px', textAlign: 'left' }}>Team</th>
+                  <th style={{ color: '#e2e8f0', padding: '8px', textAlign: 'left' }}>Q</th>
+                  <th style={{ color: '#e2e8f0', padding: '8px', textAlign: 'left' }}>Clock</th>
+                  <th style={{ color: '#e2e8f0', padding: '8px', textAlign: 'left' }}>Down/TG</th>
+                  <th style={{ color: '#e2e8f0', padding: '8px', textAlign: 'left' }}>On</th>
+                  <th style={{ color: '#e2e8f0', padding: '8px', textAlign: 'left' }}>Type</th>
+                  <th style={{ color: '#e2e8f0', padding: '8px', textAlign: 'right' }}>Yds</th>
+                  <th style={{ color: '#e2e8f0', padding: '8px', textAlign: 'left' }}>Result</th>
+                  <th style={{ color: '#e2e8f0', padding: '8px', textAlign: 'left' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {game.plays
+                  .slice()
+                  .reverse()
+                  .map((play, index) => {
+                    const teamLabel =
+                      play.teamSide === 'home'
+                        ? team?.shortName || teamName
+                        : opponent?.shortName || opponentName;
+                    const yardObj = play.yardLine !== undefined ? convertToPlCt(play.yardLine) : null;
+                    const downTg =
+                      play.down && play.distance ? `${play.down} & ${play.distance}` : '-';
+                    const on = yardObj ? `${yardObj.side} ${yardObj.value}` : '-';
+                    const seq = game.plays.length - index;
+                    const result =
+                      play.description ||
+                      `${roster.find((p) => p.id === play.playerId)?.name || 'Team'} - ${play.type}`;
+                    return (
+                      <tr key={play.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                        <td style={{ color: '#e2e8f0', padding: '8px', fontFamily: 'monospace' }}>{seq}</td>
+                        <td style={{ color: '#f7fafc', padding: '8px' }}>{teamLabel}</td>
+                        <td style={{ color: '#f7fafc', padding: '8px' }}>{play.quarter ?? '-'}</td>
+                        <td style={{ color: '#f7fafc', padding: '8px', fontFamily: 'monospace' }}>
+                          {formatTime(play.timestamp)}
+                        </td>
+                        <td style={{ color: '#f7fafc', padding: '8px' }}>{downTg}</td>
+                        <td style={{ color: '#f7fafc', padding: '8px' }}>{on}</td>
+                        <td style={{ color: '#f7fafc', padding: '8px' }}>{play.type}</td>
+                        <td style={{ color: '#f7fafc', padding: '8px', textAlign: 'right' }}>{play.yards ?? '-'}</td>
+                        <td style={{ color: '#f7fafc', padding: '8px', maxWidth: '400px' }}>
+                          <span style={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {result}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px' }}>
+                          <HStack gap={2}>
+                            <Button
+                              size="xs"
+                              colorScheme="blue"
+                              onClick={() => openPlayEditor(play)}
+                            >
+                              Details
+                            </Button>
+                            <Button
+                              size="xs"
+                              colorScheme="red"
+                              variant="outline"
+                              onClick={() => deletePlay(play.id)}
+                            >
+                              Delete
+                            </Button>
+                          </HStack>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </Box>
+        )}
       </Box>
 
       {/* Player Picker Modal */}
