@@ -25,45 +25,37 @@ import { Player, Coach } from '../models';
 import { playerSchema, coachSchema } from '../validation/schemas';
 import { useProgram } from '../context/ProgramContext';
 import { showSuccessToast, showErrorToast, showInfoToast } from '../utils/toast';
-
 type PlayerFormState = {
   name: string;
   jerseyNumber: string;
   position: string;
   classYear: string;
 };
-
 type CoachFormState = {
   name: string;
   role: string;
 };
-
 const defaultPlayerForm: PlayerFormState = {
   name: '',
   jerseyNumber: '',
   position: '',
   classYear: '',
 };
-
 const defaultCoachForm: CoachFormState = {
   name: '',
   role: '',
 };
-
 const playerFormSchema = playerSchema.extend({
   jerseyNumber: playerSchema.shape.jerseyNumber.optional(),
 });
-
 const coachFormSchema = coachSchema.extend({
   role: coachSchema.shape.role.optional(),
 });
-
 const TEAM_PLAYER_ID = 'team-placeholder-player';
 const TEAM_PLAYER_NUMBER = 100;
 const TEAM_PLAYER_NAME = 'TEAM';
 const NEW_PLAYER_ID = 'new-player-row';
 const MAX_LOGO_SIZE = 2 * 1024 * 1024; // 2MB limit for logo uploads
-
 const sortRoster = (players: Player[]) =>
   [...players].sort((a, b) => {
     const aSentinel =
@@ -76,25 +68,20 @@ const sortRoster = (players: Player[]) =>
       b.name.toUpperCase?.() === TEAM_PLAYER_NAME;
     if (aSentinel && !bSentinel) return 1;
     if (!aSentinel && bSentinel) return -1;
-
     const aNumber = typeof a.jerseyNumber === 'number' ? a.jerseyNumber : Infinity;
     const bNumber = typeof b.jerseyNumber === 'number' ? b.jerseyNumber : Infinity;
     if (aNumber !== bNumber) return aNumber - bNumber;
-
     return (a.preferredName ?? a.name).localeCompare(b.preferredName ?? b.name);
   });
-
 type ParsedRosterResult = {
   players: Player[];
   issues: string[];
 };
-
 const formatClassYear = (value?: number) => {
   if (!value) return '--';
   if (value > 2000) return value.toString();
   return `20${value.toString().padStart(2, '0')}`;
 };
-
 const TeamManager: React.FC = () => {
   const {
     team,
@@ -108,9 +95,7 @@ const TeamManager: React.FC = () => {
     refreshTeam,
     refreshSeasons,
   } = useProgram();
-
   const teamId = team?.id ?? null;
-
   const [roster, setRoster] = useState<Player[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [rosterError, setRosterError] = useState<string | null>(null);
@@ -118,7 +103,6 @@ const TeamManager: React.FC = () => {
   const [playerSaving, setPlayerSaving] = useState(false);
   const [playerForm, setPlayerForm] = useState<PlayerFormState>(defaultPlayerForm);
   const [editingPlayerId, setEditingPlayerId] = useState<string | null>(null);
-
   const [coachFormOpen, setCoachFormOpen] = useState(false);
   const [coachSaving, setCoachSaving] = useState(false);
   const [coachForm, setCoachForm] = useState<CoachFormState>(defaultCoachForm);
@@ -135,7 +119,6 @@ const TeamManager: React.FC = () => {
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [logoDirty, setLogoDirty] = useState(false);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
-
   const colorDirty = useMemo(() => {
     const defaultPrimary = team?.defaultColors?.primaryColor ?? '#0B3D91';
     const defaultSecondary = team?.defaultColors?.secondaryColor ?? '#C60C30';
@@ -153,7 +136,6 @@ const TeamManager: React.FC = () => {
     colorForm.secondaryColor,
     colorForm.accentColor,
   ]);
-
   const hasBrandingChanges = colorDirty || logoDirty;
   const [importerOpen, setImporterOpen] = useState(false);
   const [importText, setImportText] = useState('');
@@ -161,7 +143,6 @@ const TeamManager: React.FC = () => {
   const [importerMessage, setImporterMessage] = useState<
     { tone: 'info' | 'error' | 'success'; text: string } | null
   >(null);
-
   const loadRoster = useCallback(async () => {
     if (!teamId || !activeSeasonId) {
       setRoster([]);
@@ -172,14 +153,12 @@ const TeamManager: React.FC = () => {
     try {
       const players = await getSeasonRoster(teamId, activeSeasonId);
       let finalPlayers = players;
-
       const hasPlaceholder = players.some(
         (player) =>
           player.id === TEAM_PLAYER_ID ||
           (player.jerseyNumber === TEAM_PLAYER_NUMBER &&
             player.name?.toUpperCase() === TEAM_PLAYER_NAME)
       );
-
       if (!hasPlaceholder) {
         const placeholder: Player = {
           id: TEAM_PLAYER_ID,
@@ -197,7 +176,6 @@ const TeamManager: React.FC = () => {
           finalPlayers = [...players];
         }
       }
-
       setRoster(sortRoster(finalPlayers));
     } catch (error) {
       console.error('Failed to load roster', error);
@@ -206,11 +184,9 @@ const TeamManager: React.FC = () => {
       setRosterLoading(false);
     }
   }, [teamId, activeSeasonId]);
-
   useEffect(() => {
     loadRoster();
   }, [loadRoster]);
-
   useEffect(() => {
     if (team?.defaultColors) {
       setColorForm({
@@ -222,12 +198,10 @@ const TeamManager: React.FC = () => {
       setLogoDirty(false);
     }
   }, [team?.defaultColors]);
-
   const coaches: Coach[] = useMemo(
     () => activeSeason?.coaches ?? [],
     [activeSeason?.coaches]
   );
-
   const deletableCount = useMemo(
     () =>
       roster.filter(
@@ -235,7 +209,6 @@ const TeamManager: React.FC = () => {
       ).length,
     [roster]
   );
-
   const tableData = useMemo(() => {
     if (editingPlayerId === NEW_PLAYER_ID) {
       return [
@@ -250,21 +223,17 @@ const TeamManager: React.FC = () => {
     }
     return roster;
   }, [editingPlayerId, roster]);
-
   const isEditingPlayer = editingPlayerId !== null;
-
   const resetPlayerForm = useCallback(() => {
     setPlayerForm(defaultPlayerForm);
     setEditingPlayerId(null);
   }, []);
-
   const openCreatePlayer = useCallback(() => {
     setRosterError(null);
     setRosterFeedback(null);
     setPlayerForm(defaultPlayerForm);
     setEditingPlayerId(NEW_PLAYER_ID);
   }, []);
-
   const openEditPlayer = useCallback((player: Player) => {
     if (player.id === TEAM_PLAYER_ID || player.jerseyNumber === TEAM_PLAYER_NUMBER) {
       return;
@@ -279,42 +248,27 @@ const TeamManager: React.FC = () => {
     });
     setEditingPlayerId(player.id);
   }, []);
-
   const handlePlayerFormChange = useCallback((field: keyof PlayerFormState, value: string) => {
     setPlayerForm((prev) => ({ ...prev, [field]: value }));
   }, []);
-
   const handleCancelEdit = useCallback(() => {
     resetPlayerForm();
   }, [resetPlayerForm]);
-
   const handleSavePlayer = useCallback(async () => {
     if (!teamId || !activeSeasonId) return;
-    const trimmedName = playerForm.name.trim();
-    if (!trimmedName) {
-      setRosterError('Player name is required.');
+    setRosterError(null);
+    const parsed = playerFormSchema.safeParse({
+      name: playerForm.name.trim(),
+      jerseyNumber: playerForm.jerseyNumber.trim() || undefined,
+      position: playerForm.position.trim() || undefined,
+      classYear: playerForm.classYear.trim() || undefined,
+    });
+    if (!parsed.success) {
+      const message = parsed.error.issues[0]?.message ?? 'Please fix player details.';
+      setRosterError(message);
       return;
     }
-    const trimmedPosition = playerForm.position.trim();
-    const jerseyNumber = playerForm.jerseyNumber.trim()
-      ? Number(playerForm.jerseyNumber.trim())
-      : undefined;
-    if (playerForm.jerseyNumber.trim() && Number.isNaN(jerseyNumber)) {
-      setRosterError('Jersey number must be a number.');
-      return;
-    }
-    if (typeof jerseyNumber === 'number' && jerseyNumber < 0) {
-      setRosterError('Jersey number must be positive.');
-      return;
-    }
-    const classYearValue = playerForm.classYear.trim()
-      ? Number(playerForm.classYear.trim())
-      : undefined;
-    if (playerForm.classYear.trim() && Number.isNaN(classYearValue)) {
-      setRosterError('Class year must be numeric (e.g. 2026).');
-      return;
-    }
-
+    const { name, jerseyNumber, position, classYear } = parsed.data;
     const duplicateNumber = typeof jerseyNumber === 'number'
       ? roster.some(
           (player) =>
@@ -326,31 +280,29 @@ const TeamManager: React.FC = () => {
       setRosterError(`Jersey number ${jerseyNumber} is already assigned.`);
       return;
     }
-
-    const positions = trimmedPosition
-      ? trimmedPosition
+    const positions = position
+      ? position
           .split(/[,/]/)
           .map((part) => part.trim())
           .filter(Boolean)
       : undefined;
-
     const existingPlayer =
       editingPlayerId && editingPlayerId !== NEW_PLAYER_ID
         ? roster.find((player) => player.id === editingPlayerId)
         : undefined;
-
     setPlayerSaving(true);
     try {
-      const baseId = editingPlayerId && editingPlayerId !== NEW_PLAYER_ID ? editingPlayerId : uuidv4();
+      const baseId =
+        editingPlayerId && editingPlayerId !== NEW_PLAYER_ID ? editingPlayerId : uuidv4();
       const payload: Player = {
         ...(existingPlayer ?? { id: baseId, stats: {} }),
         id: baseId,
-        name: trimmedName,
-        preferredName: trimmedName,
+        name,
+        preferredName: name,
         jerseyNumber,
         position: positions?.[0],
         positions,
-        classYear: classYearValue,
+        classYear: classYear ?? undefined,
       };
       await upsertRosterPlayer(teamId, activeSeasonId, payload);
       await loadRoster();
@@ -363,7 +315,6 @@ const TeamManager: React.FC = () => {
       setPlayerSaving(false);
     }
   }, [teamId, activeSeasonId, playerForm, editingPlayerId, roster, loadRoster, resetPlayerForm]);
-
   const handleDeletePlayer = useCallback(async (playerId: string) => {
     if (!teamId || !activeSeasonId) return;
     if (playerId === TEAM_PLAYER_ID) {
@@ -386,7 +337,6 @@ const TeamManager: React.FC = () => {
       setRosterError('Unable to delete player. Please try again.');
     }
   }, [teamId, activeSeasonId, roster, loadRoster, editingPlayerId, resetPlayerForm]);
-
   const handleDeleteAllPlayers = useCallback(async () => {
     if (!teamId || !activeSeasonId) return;
     const deletable = roster.filter(
@@ -421,47 +371,38 @@ const TeamManager: React.FC = () => {
       setRosterLoading(false);
     }
   }, [teamId, activeSeasonId, roster, loadRoster, resetPlayerForm]);
-
   const resetCoachForm = useCallback(() => {
     setCoachForm(defaultCoachForm);
     setEditingCoachId(null);
   }, []);
-
   const openCreateCoach = useCallback(() => {
     resetCoachForm();
     setCoachFeedback(null);
     setCoachFormOpen(true);
   }, [resetCoachForm]);
-
   const openEditCoach = useCallback((coach: Coach) => {
     setCoachForm({ name: coach.name, role: coach.role });
     setEditingCoachId(coach.id);
     setCoachFeedback(null);
     setCoachFormOpen(true);
   }, []);
-
   const handleCoachFormChange = (field: keyof CoachFormState, value: string) => {
     setCoachForm((prev) => ({ ...prev, [field]: value }));
   };
-
   const handleSaveCoach = useCallback(async () => {
     if (!teamId || !activeSeasonId) return;
     setCoachFeedback(null);
-
     const parsed = coachFormSchema.safeParse({
       name: coachForm.name.trim(),
       role: coachForm.role.trim() || undefined,
     });
-
     if (!parsed.success) {
       const message = parsed.error.issues[0]?.message ?? 'Please fix coach details.';
       setCoachFeedback(message);
       return;
     }
-
     const { name, role } = parsed.data;
     const resolvedRole = role?.trim();
-
     setCoachSaving(true);
     try {
       const next = [...coaches];
@@ -493,7 +434,6 @@ const TeamManager: React.FC = () => {
       setCoachSaving(false);
     }
   }, [teamId, activeSeasonId, coachForm, coaches, editingCoachId, refreshSeasons, resetCoachForm]);
-
   const handleDeleteCoach = useCallback(async (coachId: string) => {
     if (!teamId || !activeSeasonId) return;
     setCoachSaving(true);
@@ -510,13 +450,11 @@ const TeamManager: React.FC = () => {
       setCoachSaving(false);
     }
   }, [teamId, activeSeasonId, coaches, refreshSeasons]);
-
   const parseMaxPrepsRoster = useCallback(
     (raw: string): ParsedRosterResult => {
       if (!raw) {
         return { players: [], issues: ['No roster text provided.'] };
       }
-
       const sections = raw.replace(/\r/g, '').split(/#\s*Player\s*Grade\s*Position\s*Height\s*Weight/i);
       if (sections.length <= 1) {
         return {
@@ -524,7 +462,6 @@ const TeamManager: React.FC = () => {
           issues: ['Could not find the roster header "# Player Grade Position Height Weight".'],
         };
       }
-
       const section = sections[1];
       const issues: string[] = [];
       const gradeOffsets: Record<string, number> = {
@@ -546,7 +483,6 @@ const TeamManager: React.FC = () => {
         '5th': 7,
         '5thgrade': 7,
       };
-
       const normalizeGradeKey = (value: string) => {
         const key = value.toLowerCase().replace(/\./g, '').replace(/\s+/g, '');
         if (gradeOffsets[key] !== undefined) return key;
@@ -560,13 +496,11 @@ const TeamManager: React.FC = () => {
         if (key.startsWith('five')) return '5th';
         return key;
       };
-
       const isHeightValue = (value: string) => {
         const normalized = value.toLowerCase().replace(/\s+/g, '');
         if (normalized === '-' || normalized === '') return true;
         return /^(\d{1,2}'\d{0,2}"?|\d{1,2}"|-\s*)$/.test(normalized);
       };
-
       const normalizeHeight = (value?: string) => {
         if (!value) return undefined;
         const trimmed = value.trim();
@@ -579,13 +513,11 @@ const TeamManager: React.FC = () => {
         }
         return trimmed;
       };
-
       const isWeightValue = (value: string) => {
         const normalized = value.toLowerCase().replace(/\s+/g, '');
         if (normalized === '-' || normalized === '') return true;
         return /^\d{2,3}(lbs|pounds)?$/.test(normalized);
       };
-
       const normalizeWeight = (value?: string) => {
         if (!value) return undefined;
         const normalized = value.toLowerCase().replace(/\s+/g, '');
@@ -596,12 +528,10 @@ const TeamManager: React.FC = () => {
         }
         return value.trim();
       };
-
       const lines = section
         .split('\n')
         .map((line) => line.replace(/\u00a0/g, ' ').trim())
         .filter((line) => line !== '');
-
       const endTokens = [
         /^volunteer/i,
         /^help the coach/i,
@@ -610,16 +540,13 @@ const TeamManager: React.FC = () => {
         /^latest videos/i,
         /^contribute to the team/i,
       ];
-
       const players: Player[] = [];
       const seenKeys = new Set<string>();
       let index = 0;
-
       const pushIssue = (message: string) => {
         issues.push(message);
         console.warn('[MaxPreps Import] ', message);
       };
-
       while (index < lines.length) {
         let jerseyLine: string | undefined;
         while (index < lines.length) {
@@ -635,11 +562,9 @@ const TeamManager: React.FC = () => {
             break;
           }
         }
-
         if (!jerseyLine) {
           break;
         }
-
         let nameLine: string | undefined;
         while (index < lines.length) {
           const candidate = lines[index++];
@@ -651,12 +576,10 @@ const TeamManager: React.FC = () => {
           nameLine = candidate.replace(/\s+/g, ' ').trim();
           break;
         }
-
         if (!nameLine) {
           pushIssue(`Skipped #${jerseyLine}: missing player name.`);
           continue;
         }
-
         let detailsLine: string | undefined;
         while (index < lines.length) {
           const candidate = lines[index++];
@@ -664,12 +587,10 @@ const TeamManager: React.FC = () => {
           detailsLine = candidate;
           break;
         }
-
         if (!detailsLine) {
           pushIssue(`Skipped ${nameLine}: missing grade/position information.`);
           continue;
         }
-
         let segments = detailsLine.split(/\t+/).map((part) => part.trim()).filter(Boolean);
         if (segments.length <= 1) {
           segments = detailsLine.split(/\s{2,}/).map((part) => part.trim()).filter(Boolean);
@@ -678,19 +599,16 @@ const TeamManager: React.FC = () => {
           pushIssue(`Skipped ${nameLine}: could not parse columns.`);
           continue;
         }
-
         const gradeLabel = segments[0];
         const gradeKey = normalizeGradeKey(gradeLabel);
         if (!gradeKey || gradeOffsets[gradeKey] === undefined) {
           pushIssue(`Skipped ${nameLine}: grade "${gradeLabel}" is not supported.`);
           continue;
         }
-
         const remaining = segments.slice(1);
         const positionBuffer: string[] = [];
         let heightValue: string | undefined;
         let weightValue: string | undefined;
-
         remaining.forEach((segment) => {
           if (!heightValue && isHeightValue(segment)) {
             heightValue = segment;
@@ -702,7 +620,6 @@ const TeamManager: React.FC = () => {
           }
           positionBuffer.push(segment);
         });
-
         const positionString = positionBuffer.join(' ').replace(/\s+/g, ' ').trim();
         const positions =
           positionString.length > 0
@@ -711,20 +628,16 @@ const TeamManager: React.FC = () => {
                 .map((value) => value.trim())
                 .filter(Boolean)
             : undefined;
-
         const jerseyMatch = jerseyLine.match(/\d{1,3}/);
         const jerseyNumber = jerseyMatch ? Number(jerseyMatch[0]) : undefined;
-
         let classYear: number | undefined;
         const offset = gradeOffsets[gradeKey];
         if (activeSeason?.year !== undefined && offset !== undefined) {
           classYear = activeSeason.year + offset;
         }
-
         const metadata: Record<string, unknown> = { grade: gradeLabel };
         const normalizedHeight = normalizeHeight(heightValue);
         const normalizedWeight = normalizeWeight(weightValue);
-
         const player: Player = {
           id: uuidv4(),
           name: nameLine,
@@ -732,7 +645,6 @@ const TeamManager: React.FC = () => {
           stats: {},
           metadata,
         };
-
         if (Number.isFinite(jerseyNumber)) {
           player.jerseyNumber = jerseyNumber as number;
         }
@@ -749,7 +661,6 @@ const TeamManager: React.FC = () => {
         if (normalizedWeight) {
           player.weight = normalizedWeight;
         }
-
         const dedupeKey = `${player.name.toLowerCase()}-${player.jerseyNumber ?? 'na'}`;
         if (seenKeys.has(dedupeKey)) {
           pushIssue(
@@ -759,20 +670,16 @@ const TeamManager: React.FC = () => {
           );
           continue;
         }
-
         seenKeys.add(dedupeKey);
         players.push(player);
       }
-
       if (!players.length && !issues.length) {
         issues.push('No players could be parsed from the pasted text.');
       }
-
       return { players, issues };
     },
     [activeSeason?.year]
   );
-
   const handleImportFromMaxPreps = useCallback(async () => {
     if (!teamId || !activeSeasonId) return;
     const raw = importText.trim();
@@ -791,16 +698,13 @@ const TeamManager: React.FC = () => {
     try {
       const { players: parsedPlayers, issues: parserIssues } = parseMaxPrepsRoster(raw);
       const issues = [...parserIssues];
-
       const existingNumbers = new Set<number>();
       roster.forEach((player) => {
         if (typeof player.jerseyNumber === 'number') {
           existingNumbers.add(player.jerseyNumber);
         }
       });
-
       const importablePlayers: Player[] = [];
-
       parsedPlayers.forEach((player) => {
         if (typeof player.jerseyNumber === 'number') {
           if (existingNumbers.has(player.jerseyNumber)) {
@@ -813,7 +717,6 @@ const TeamManager: React.FC = () => {
         }
         importablePlayers.push(player);
       });
-
       if (!importablePlayers.length) {
         const errorLines = [
           'No players were imported from the pasted roster.',
@@ -830,11 +733,9 @@ const TeamManager: React.FC = () => {
         });
         return;
       }
-
       await importRosterBatch(teamId, activeSeasonId, importablePlayers);
       await loadRoster();
       setImportText('');
-
       const summaryLines = [
         `${importablePlayers.length} ${importablePlayers.length === 1 ? 'player was' : 'players were'} imported from MaxPreps.`,
       ];
@@ -848,7 +749,6 @@ const TeamManager: React.FC = () => {
         }
       }
       const summaryMessage = summaryLines.join('\n');
-
       setImporterMessage({
         tone: issues.length ? 'info' : 'success',
         text: summaryMessage,
@@ -864,7 +764,6 @@ const TeamManager: React.FC = () => {
       setImportingRoster(false);
     }
   }, [teamId, activeSeasonId, importText, parseMaxPrepsRoster, roster, loadRoster, resetPlayerForm]);
-
   const rosterColumns: DataTableColumn<Player>[] = useMemo(
     () => [
       {
@@ -898,7 +797,6 @@ const TeamManager: React.FC = () => {
               </Stack>
             );
           }
-
           return (
             <Stack gap={0}>
               <Text fontWeight="600">{row.preferredName ?? row.name}</Text>
@@ -987,7 +885,6 @@ const TeamManager: React.FC = () => {
               </HStack>
             );
           }
-
           return (
             <HStack justify="flex-end" gap={2}>
               <Button
@@ -1040,7 +937,6 @@ const TeamManager: React.FC = () => {
       handleDeletePlayer,
     ]
   );
-
   const swatches = useMemo(
     () =>
       [
@@ -1050,7 +946,6 @@ const TeamManager: React.FC = () => {
       ].filter((entry) => entry.value),
     [colorForm]
   );
-
   const handleColorChange = useCallback(
     (field: keyof typeof colorForm, value: string) => {
       setColorForm((prev) => ({ ...prev, [field]: value }));
@@ -1059,7 +954,6 @@ const TeamManager: React.FC = () => {
     },
     []
   );
-
   const handleLogoSelect = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       setBrandingFeedback(null);
@@ -1090,7 +984,6 @@ const TeamManager: React.FC = () => {
     },
     []
   );
-
   const handleRemoveLogo = useCallback(() => {
     setBrandingFeedback(null);
     setBrandingError(null);
@@ -1100,7 +993,6 @@ const TeamManager: React.FC = () => {
       logoInputRef.current.value = '';
     }
   }, []);
-
   const handleSaveBranding = useCallback(async () => {
     if (!teamId) return;
     if (!logoDirty && !colorDirty) {
@@ -1122,7 +1014,6 @@ const TeamManager: React.FC = () => {
         accentColor: colorForm.accentColor || undefined,
         logoUrl: nextLogoUrl ?? undefined,
       });
-
       await refreshTeam();
       setLogoDirty(false);
       if (!nextLogoUrl) {
@@ -1141,7 +1032,6 @@ const TeamManager: React.FC = () => {
       setBrandingSaving(false);
     }
   }, [teamId, team?.defaultColors?.logoUrl, logoDirty, colorDirty, logoPreview, colorForm, refreshTeam]);
-
   if (teamLoading || seasonsLoading) {
     return (
       <Stack align="center" justify="center" minH="60vh" gap={3}>
@@ -1150,7 +1040,6 @@ const TeamManager: React.FC = () => {
       </Stack>
     );
   }
-
   if (teamError && !team) {
     return (
       <SectionCard title="Team Manager">
@@ -1158,7 +1047,6 @@ const TeamManager: React.FC = () => {
       </SectionCard>
     );
   }
-
   if (!team || seasons.length === 0 || !activeSeasonId) {
     return (
       <SectionCard title="Team Manager">
@@ -1174,9 +1062,7 @@ const TeamManager: React.FC = () => {
       </SectionCard>
     );
   }
-
   const headerLogo = logoPreview ?? team.defaultColors?.logoUrl ?? null;
-
   return (
     <Stack gap={6}>
       <PageHeader
@@ -1223,7 +1109,6 @@ const TeamManager: React.FC = () => {
           ) : undefined
         }
       />
-
       <SectionCard
         title="Program Overview"
         description="Core identity for uniforms, scoreboards, and public reports."
@@ -1392,7 +1277,6 @@ const TeamManager: React.FC = () => {
               )}
             </Stack>
           </VStack>
-
           <VStack
             align="flex-start"
             border="1px solid"
@@ -1422,7 +1306,6 @@ const TeamManager: React.FC = () => {
             <Text fontSize="sm" color="brand.secondary">
               Logo & Colors
             </Text>
-
             <Stack
               direction={{ base: 'column', md: 'row' }}
               gap={4}
@@ -1459,7 +1342,6 @@ const TeamManager: React.FC = () => {
                   </Stack>
                 )}
               </Box>
-
               <Stack gap={2} flex="1">
                 <HStack gap={2} flexWrap="wrap">
                   <Button
@@ -1494,7 +1376,6 @@ const TeamManager: React.FC = () => {
                 )}
               </Stack>
             </Stack>
-
             <chakra.input
               ref={logoInputRef}
               type="file"
@@ -1502,7 +1383,6 @@ const TeamManager: React.FC = () => {
               display="none"
               onChange={handleLogoSelect}
             />
-
             <SimpleGrid columns={{ base: 1, md: 3 }} gap={3} w="100%" mt={4}>
               <Stack gap={1} align="center">
                 <Text fontSize="xs" color="brand.secondary">
@@ -1550,7 +1430,6 @@ const TeamManager: React.FC = () => {
                 />
               </Stack>
             </SimpleGrid>
-
             {swatches.length > 0 && (
               <HStack gap={3} mt={3}>
                 {swatches.map((entry) => (
@@ -1570,7 +1449,6 @@ const TeamManager: React.FC = () => {
                 ))}
               </HStack>
             )}
-
             <HStack
               justify="flex-end"
               w="100%"
@@ -1594,7 +1472,6 @@ const TeamManager: React.FC = () => {
           </VStack>
         </SimpleGrid>
       </SectionCard>
-
       <SectionCard
         title="Roster"
         description="Assign jersey numbers, track class years, and sync with MaxPreps imports."
@@ -1777,5 +1654,4 @@ const TeamManager: React.FC = () => {
     </Stack>
   );
 };
-
 export default TeamManager;

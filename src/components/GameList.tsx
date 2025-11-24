@@ -213,28 +213,53 @@ const combineDateTimeToTimestamp = (date: string, time: string): Timestamp => {
   return Timestamp.fromDate(dateObj);
 };
 
+const toMillis = (date: any): number | null => {
+  if (!date) return null;
+  if (typeof date.toMillis === 'function') return date.toMillis();
+  if (date.seconds !== undefined) {
+    const seconds = Number(date.seconds) || 0;
+    const nanos = Number((date as any).nanoseconds ?? (date as any).nanos ?? 0);
+    return seconds * 1000 + Math.floor(nanos / 1_000_000);
+  }
+  if (date instanceof Date) return date.getTime();
+  if (typeof date === 'string' || typeof date === 'number') {
+    const t = new Date(date as any).getTime();
+    return Number.isNaN(t) ? null : t;
+  }
+  return null;
+};
+
+
+const toDateSafe = (timestamp?: any): Date | null => {
+  const ms = toMillis(timestamp);
+  if (ms !== null) return new Date(ms);
+  if (timestamp && typeof timestamp.toDate === 'function') return timestamp.toDate();
+  return null;
+};
+
 const sortGames = (games: Game[]) =>
   [...games].sort((a, b) => {
-    if (a.date && b.date) {
-      return a.date.toMillis() - b.date.toMillis();
+    const aMillis = toMillis(a.date);
+    const bMillis = toMillis(b.date);
+    if (aMillis !== null && bMillis !== null) {
+      return aMillis - bMillis;
     }
-    if (a.date) return -1;
-    if (b.date) return 1;
+    if (aMillis !== null) return -1;
+    if (bMillis !== null) return 1;
     return (a.opponent ?? '').localeCompare(b.opponent ?? '');
   });
-
 const getSeasonDisplayName = (season: Season) => {
   const levelLabel = levelOptions.find((option) => option.value === season.level)?.label ?? '';
   return `${season.label} ${levelLabel ? `(${levelLabel})` : ''}`.trim();
 };
 
-const formatGameDate = (timestamp?: Timestamp) => {
-  if (!timestamp) return '--';
-  const date = timestamp.toDate();
+const formatGameDate = (timestamp?: Timestamp | any) => {
+  const date = toDateSafe(timestamp);
+  if (!date) return '--';
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
-const formatGameTime = (kick?: string, timestamp?: Timestamp) => {
+const formatGameTime = (kick?: string, timestamp?: Timestamp | any) => {
   if (kick) {
     const trimmed = kick.trim();
     const match12 = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
@@ -2478,5 +2503,9 @@ const GameList: React.FC = () => {
 };
 
 export default GameList;
+
+
+
+
 
 

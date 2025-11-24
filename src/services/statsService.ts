@@ -1,5 +1,5 @@
 import { Game, Play, Player, PlayType } from '../models';
-import { getMyTeamRoster, setGameRoster } from '../utils/gameUtils';
+import { getMyTeamRoster, getOpponentRoster, setGameRoster, setOpponentRoster } from '../utils/gameUtils';
 
 type StatBucket = { [key: string]: number };
 
@@ -86,10 +86,6 @@ const getScoreDelta = (play: Play): Score => {
  * More reliable than string matching.
  */
 const applyPlayToStats = (playerStats: Record<string, StatBucket>, play: Play) => {
-  // Only track stats for the home team roster; opponent plays are scored but not applied to these players
-  if (play.teamSide === 'away') {
-    return;
-  }
   const playerKey = play.playerId ?? play.primaryPlayerId;
   if (!playerKey) {
     return;
@@ -235,39 +231,53 @@ export const buildScoreTimeline = (plays: Play[]): Score[] => {
 };
 
 export const recalculateStats = (game: Game): Game => {
-  const basePlayers = clonePlayers(getMyTeamRoster(game));
-  const playerStats: Record<string, StatBucket> = {};
+  const homeRoster = clonePlayers(getMyTeamRoster(game));
+  const opponentRoster = clonePlayers(getOpponentRoster(game));
+  const homeStats: Record<string, StatBucket> = {};
+  const oppStats: Record<string, StatBucket> = {};
   let homeScore = 0;
   let oppScore = 0;
 
-  basePlayers.forEach((player) => {
-    playerStats[player.id] = {};
+  homeRoster.forEach((player) => {
+    homeStats[player.id] = {};
+  });
+  opponentRoster.forEach((player) => {
+    oppStats[player.id] = {};
   });
 
   game.plays.forEach((play: Play) => {
-    applyPlayToStats(playerStats, play);
-    const delta = getScoreDelta(play);
+    const patchedPlay: Play = play.teamSide
+      ? play
+      : { ...play, teamSide: 'home' }; // Fallback for legacy plays without a side
+
+    const targetStats = patchedPlay.teamSide === 'away' ? oppStats : homeStats;
+    applyPlayToStats(targetStats, patchedPlay);
+    const delta = getScoreDelta(patchedPlay);
     homeScore += delta.home;
     oppScore += delta.opp;
   });
-
-  const recalculatedPlayers = basePlayers.map((player) => ({
+  const recalculatedHome = homeRoster.map((player) => ({
     ...player,
-    stats: { ...playerStats[player.id] },
+    stats: { ...homeStats[player.id] },
+  }));
+  const recalculatedOpp = opponentRoster.map((player) => ({
+    ...player,
+    stats: { ...oppStats[player.id] },
   }));
 
-  return setGameRoster(
+  const withHomeRoster = setGameRoster(
     {
       ...game,
       homeScore,
       oppScore,
     },
-    recalculatedPlayers,
+    recalculatedHome,
     game.myTeamId,
     game.seasonId
   );
-};
 
+  return setOpponentRoster(withHomeRoster, recalculatedOpp, game.opponentTeamId);
+};
 export const addPlayAndRecalc = (game: Game, play: Play): Game => {
   const newGame = { ...game, plays: [...game.plays, play] };
   return recalculateStats(newGame);
@@ -290,3 +300,7 @@ export const undoLastPlay = (game: Game): Game => {
 };
 
 export {};
+
+
+
+
