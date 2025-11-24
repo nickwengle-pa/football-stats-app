@@ -199,6 +199,10 @@ export enum PlayType {
 // Legacy type for backward compatibility during migration
 export type PlayTypeLegacy = PlayType | string;
 
+export type HashMark = 'left' | 'middle' | 'right';
+export type OffensiveFormation = 'I-Form' | 'Shotgun' | 'Pistol' | 'Singleback' | 'Wildcat' | 'Empty' | 'Trips' | 'Spread' | 'Goal Line' | 'Other';
+export type DefensiveFormation = '4-3' | '3-4' | '4-4' | 'Nickel' | 'Dime' | 'Quarter' | 'Goal Line' | 'Prevent' | 'Other';
+
 export interface Play {
   id: UUID;
   type: PlayType;
@@ -213,6 +217,13 @@ export interface Play {
   down?: number;
   distance?: string;
   yardLine?: number;
+  endYardLine?: number; // Where the play ended
+  hashMark?: HashMark; // Ball position on field (left/middle/right hash)
+  offensiveFormation?: OffensiveFormation;
+  defensiveFormation?: DefensiveFormation;
+  playStartTime?: number; // Game clock when play started (seconds)
+  playEndTime?: number; // Game clock when play ended (seconds)
+  resultedInFirstDown?: boolean; // Did this play result in a first down?
   possessionTeamId?: UUID;
   assistingPlayerIds?: UUID[];
   participants?: PlayParticipant[];
@@ -258,6 +269,11 @@ export interface Game {
   homeTopSeconds?: number;
   awayTopSeconds?: number;
   openingKickoffReceiver?: 'home' | 'away' | null; // Track who received opening kickoff for halftime logic
+  
+  // TurboStats-style tracking
+  homeFirstDowns?: number; // Total first downs earned by home team
+  awayFirstDowns?: number; // Total first downs earned by away team
+  hashMark?: HashMark; // Current ball hash mark position
   
   // DEPRECATED: Use myTeamSnapshot.roster instead
   // Kept for backward compatibility during migration

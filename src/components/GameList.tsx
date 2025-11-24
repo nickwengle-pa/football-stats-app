@@ -1928,8 +1928,7 @@ const GameList: React.FC = () => {
                 Kickoff
               </Text>
               <Input
-                type="text"
-                placeholder="7:00 PM"
+                type="time"
                 value={gameForm.time}
                 onChange={(event) => handleGameFormChange('time', event.target.value)}
               />

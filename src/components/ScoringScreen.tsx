@@ -20,8 +20,9 @@ import {
   Portal,
   HStack,
   Flex,
+  Table,
 } from '@chakra-ui/react';
-import { Game, Play, PlayType, Player, OpponentTeam } from '../models';
+import { Game, Play, PlayType, Player, OpponentTeam, HashMark, OffensiveFormation, DefensiveFormation } from '../models';
 import { subscribeToGame, saveGame, listOpponents, getSeasonRoster } from '../services/dbService';
 import {
   addPlayAndRecalc,
@@ -33,6 +34,7 @@ import { PageHeader, SectionCard } from './ui';
 import { YardKeypad } from './ui/YardKeypad';
 import { useProgram } from '../context/ProgramContext';
 import { getOpponentName, getMyTeamRoster } from '../utils/gameUtils';
+import { EnhancedPlayByPlayTable } from './EnhancedPlayByPlayTable';
 
 type FeedbackState = {
   status: 'success' | 'error' | 'info';
@@ -210,6 +212,20 @@ const ScoringScreen: React.FC = () => {
   const [keypadOpen, setKeypadOpen] = useState<'start' | 'end' | 'total' | null>(null);
   const [keypadLabel, setKeypadLabel] = useState<string>('');
 
+  const ensurePlaceholderPlayer = useCallback((list: Player[]) => {
+    const has100 = list.some((p) => p.jerseyNumber?.toString() === '100');
+    if (has100) return list;
+    return [
+      ...list,
+      {
+        id: 'team-placeholder-player',
+        name: 'Team/Unknown',
+        jerseyNumber: 100,
+        stats: {},
+      },
+    ];
+  }, []);
+
   // Force recalculate stats when Quick Stats opens
   const handleStatsOpen = useCallback(() => {
     if (game) {
@@ -228,7 +244,7 @@ const ScoringScreen: React.FC = () => {
           }
         };
         const recalculated = recalculateStats(gameWithRoster);
-        const rosterWithStats = getMyTeamRoster(recalculated);
+        const rosterWithStats = ensurePlaceholderPlayer(getMyTeamRoster(recalculated));
         console.log('Recalculated roster:', rosterWithStats.length, 'players');
         if (rosterWithStats.length > 0) {
           console.log('Sample player stats after recalc:', rosterWithStats[0]?.stats);
@@ -236,7 +252,7 @@ const ScoringScreen: React.FC = () => {
         }
       } else {
         const recalculated = recalculateStats(game);
-        const rosterWithStats = getMyTeamRoster(recalculated);
+        const rosterWithStats = ensurePlaceholderPlayer(getMyTeamRoster(recalculated));
         console.log('Recalculated roster:', rosterWithStats.length, 'players');
         if (rosterWithStats.length > 0) {
           console.log('Sample player stats after recalc:', rosterWithStats[0]?.stats);
@@ -245,7 +261,7 @@ const ScoringScreen: React.FC = () => {
       }
     }
     onStatsOpen();
-  }, [game, roster, onStatsOpen]);
+  }, [game, roster, onStatsOpen, ensurePlaceholderPlayer]);
 
   // Game clock state
   const [currentQuarter, setCurrentQuarter] = useState<number>(1);
@@ -254,6 +270,9 @@ const ScoringScreen: React.FC = () => {
   const clockIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isInitialLoadRef = useRef<boolean>(true); // Track if this is the first load
   const gameRef = useRef<Game | null>(null); // Store game for save operations
+  useEffect(() => {
+    gameRef.current = game;
+  }, [game]);
 
   // Field position state
   const [fieldPosition, setFieldPosition] = useState<number>(25); // Starting at own 25
@@ -269,6 +288,12 @@ const ScoringScreen: React.FC = () => {
   const [clockMinutes, setClockMinutes] = useState<number>(12);
   const [clockSeconds, setClockSeconds] = useState<number>(0);
   const [clockDigits, setClockDigits] = useState<string>('1200');
+  
+  // TurboStats mobile integration - formation and hash mark tracking
+  const [hashMark, setHashMark] = useState<HashMark>('middle');
+  const [offensiveFormation, setOffensiveFormation] = useState<OffensiveFormation | null>(null);
+  const [defensiveFormation, setDefensiveFormation] = useState<DefensiveFormation | null>(null);
+  
   const handleJerseyDigit = (digit: number) => {
     setJerseySearch((prev) => `${prev}${digit}`);
   };
@@ -417,9 +442,13 @@ const ScoringScreen: React.FC = () => {
     const loadRoster = async () => {
       try {
         const seasonRoster = await getSeasonRoster(teamId, activeSeasonId);
-        const filteredRoster = seasonRoster.filter(p => p.id !== 'team-placeholder-player');
-        console.log('Roster loaded from season:', filteredRoster.length, 'players', filteredRoster);
-        setRoster(filteredRoster);
+        // Keep the placeholder "Team/Unknown" entry (jersey #100) so it can be selected explicitly.
+        const filteredRoster = seasonRoster.filter(
+          (p) => p.id !== 'team-placeholder-player' || p.jerseyNumber === 100
+        );
+        const withPlaceholder = ensurePlaceholderPlayer(filteredRoster);
+        console.log('Roster loaded from season:', withPlaceholder.length, 'players', withPlaceholder);
+        setRoster(withPlaceholder);
       } catch (error) {
         console.error('Failed to load roster:', error);
         setRoster([]);
@@ -427,12 +456,12 @@ const ScoringScreen: React.FC = () => {
     };
 
     loadRoster();
-  }, [teamId, activeSeasonId]);
+  }, [teamId, activeSeasonId, ensurePlaceholderPlayer]);
 
   // Update roster with recalculated stats when game changes
   useEffect(() => {
     if (game) {
-      const rosterWithStats = getMyTeamRoster(game);
+      const rosterWithStats = ensurePlaceholderPlayer(getMyTeamRoster(game));
       console.log('Game roster with stats:', rosterWithStats);
       if (rosterWithStats.length > 0) {
         console.log('Sample player stats:', rosterWithStats[0]?.stats);
@@ -442,31 +471,46 @@ const ScoringScreen: React.FC = () => {
         console.log('Game has no roster snapshot, keeping season roster without stats');
       }
     }
+  }, [game, ensurePlaceholderPlayer]);
+
+  // TurboStats: Initialize first down counters if undefined
+  useEffect(() => {
+    if (game && (game.homeFirstDowns === undefined || game.awayFirstDowns === undefined)) {
+      setGame({
+        ...game,
+        homeFirstDowns: game.homeFirstDowns ?? 0,
+        awayFirstDowns: game.awayFirstDowns ?? 0,
+      });
+    }
   }, [game]);
 
   // Clock management
   useEffect(() => {
-    if (isClockRunning && timeRemaining > 0) {
-      clockIntervalRef.current = setInterval(() => {
-        setTimeRemaining(prev => {
-          if (prev <= 1) {
-            setIsClockRunning(false);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else if (clockIntervalRef.current) {
-      clearInterval(clockIntervalRef.current);
-      clockIntervalRef.current = null;
+    if (!isClockRunning) {
+      if (clockIntervalRef.current) {
+        clearInterval(clockIntervalRef.current);
+        clockIntervalRef.current = null;
+      }
+      return;
     }
+
+    clockIntervalRef.current = setInterval(() => {
+      setTimeRemaining((prev) => {
+        if (prev <= 1) {
+          setIsClockRunning(false);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
 
     return () => {
       if (clockIntervalRef.current) {
         clearInterval(clockIntervalRef.current);
+        clockIntervalRef.current = null;
       }
     };
-  }, [isClockRunning, timeRemaining]);
+  }, [isClockRunning]);
 
   const formatClock = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -502,6 +546,7 @@ const ScoringScreen: React.FC = () => {
     
     // Calculate time of possession for the quarter that just ended
     const quarterElapsed = 12 * 60 - timeRemaining;
+    recordPossessionTime(possession);
     
     // Set new quarter
     setCurrentQuarter(pendingQuarterChange.newQuarter);
@@ -555,7 +600,11 @@ const ScoringScreen: React.FC = () => {
   };
 
   // Helper function to log game events to play-by-play
-  const logGameEvent = async (description: string, eventType: PlayType = PlayType.OTHER) => {
+  const logGameEvent = async (
+    description: string,
+    eventType: PlayType = PlayType.OTHER,
+    teamSideOverride?: 'home' | 'away'
+  ) => {
     if (!game || !teamId || !activeSeasonId) return;
     
     const eventPlay: Play = {
@@ -566,7 +615,7 @@ const ScoringScreen: React.FC = () => {
       description,
       timestamp: Timestamp.now(),
       quarter: currentQuarter,
-      teamSide: possession,
+      teamSide: teamSideOverride ?? possession,
     };
     
     const updatedGame = addPlayAndRecalc(game, eventPlay);
@@ -674,7 +723,8 @@ const ScoringScreen: React.FC = () => {
     const changeReason = reason || 'Possession change';
     await logGameEvent(
       `${changeReason}. ${possessionTeam} takes possession.`,
-      PlayType.OTHER
+      PlayType.OTHER,
+      newPossession
     );
     
     if (reason) {
@@ -904,9 +954,8 @@ const ScoringScreen: React.FC = () => {
         setGame(snapshot);
         gameRef.current = snapshot; // Store in ref for save operations
         setLoading(false);
-        
-        // Only restore game state on initial load, not on subsequent updates
-        if (snapshot && isInitialLoadRef.current) {
+
+        if (snapshot) {
           if (snapshot.currentQuarter !== undefined) setCurrentQuarter(snapshot.currentQuarter);
           if (snapshot.timeRemaining !== undefined) setTimeRemaining(snapshot.timeRemaining);
           if (snapshot.possession !== undefined) setPossession(snapshot.possession);
@@ -920,7 +969,9 @@ const ScoringScreen: React.FC = () => {
           if (snapshot.homeTopSeconds !== undefined) setHomeTopSeconds(snapshot.homeTopSeconds);
           if (snapshot.awayTopSeconds !== undefined) setAwayTopSeconds(snapshot.awayTopSeconds);
           if (snapshot.openingKickoffReceiver !== undefined) setOpeningKickoffReceiver(snapshot.openingKickoffReceiver);
-          
+        }
+
+        if (isInitialLoadRef.current) {
           isInitialLoadRef.current = false; // Mark that initial load is complete
         }
       },
@@ -1320,6 +1371,7 @@ const ScoringScreen: React.FC = () => {
       return;
     }
     setTimeoutTeam(team);
+    setIsClockRunning(false);
     
     // Set clock to current time and open clock modal
     setClockMinutes(Math.floor(timeRemaining / 60));
@@ -1804,7 +1856,8 @@ const ScoringScreen: React.FC = () => {
         actualYards = playInput.startYard; // Distance to 0-yard line
       }
     } else {
-      actualYards = playInput.startYard === playInput.endYard ? 0 : (playInput.endYard - playInput.startYard);
+      const yardsFromInput = typeof playInput.yards === 'number' ? playInput.yards : 0;
+      actualYards = yardsFromInput;
     }
     
     // Determine which player to use for the play
@@ -2698,7 +2751,7 @@ const ScoringScreen: React.FC = () => {
             </Box>
           </Box>
 
-          {/* Field Visualization - Responsive */}
+          {/* Field Visualization - Responsive with Touch/Drag */}
           <Box 
             w="full" 
             bg="rgba(0, 0, 0, 0.3)" 
@@ -2706,13 +2759,51 @@ const ScoringScreen: React.FC = () => {
             p={4}
             overflow="hidden"
           >
-            <Box position="relative" w="full" h={{ base: '150px', md: '180px', lg: '200px' }}>
+            <Box 
+              position="relative" 
+              w="full" 
+              h={{ base: '150px', md: '180px', lg: '200px' }}
+              onMouseDown={(e) => {
+                const box = e.currentTarget.getBoundingClientRect();
+                const x = e.clientX - box.left;
+                const width = box.width;
+                const TOTAL_YARDS = 120;
+                const FIELD_YARDS = 100;
+                const ENDZONE_YARDS = 10;
+                const endZoneWidth = width * (ENDZONE_YARDS / TOTAL_YARDS);
+                const fieldWidth = width * (FIELD_YARDS / TOTAL_YARDS);
+                const fieldX = x - endZoneWidth;
+                if (fieldX >= 0 && fieldX <= fieldWidth) {
+                  const newYard = Math.round((fieldX / fieldWidth) * FIELD_YARDS);
+                  setFieldPosition(clamp(newYard, 0, 100));
+                }
+              }}
+              onTouchStart={(e) => {
+                const touch = e.touches[0];
+                const box = e.currentTarget.getBoundingClientRect();
+                const x = touch.clientX - box.left;
+                const width = box.width;
+                const TOTAL_YARDS = 120;
+                const FIELD_YARDS = 100;
+                const ENDZONE_YARDS = 10;
+                const endZoneWidth = width * (ENDZONE_YARDS / TOTAL_YARDS);
+                const fieldWidth = width * (FIELD_YARDS / TOTAL_YARDS);
+                const fieldX = x - endZoneWidth;
+                if (fieldX >= 0 && fieldX <= fieldWidth) {
+                  const newYard = Math.round((fieldX / fieldWidth) * FIELD_YARDS);
+                  setFieldPosition(clamp(newYard, 0, 100));
+                }
+              }}
+              cursor="pointer"
+              _hover={{ opacity: 0.9 }}
+              transition="opacity 0.2s"
+            >
               <chakra.canvas 
                 ref={canvasRef} 
                 width="100%" 
                 height="100%" 
                 borderRadius="md"
-                style={{ width: '100%', height: '100%', display: 'block' }}
+                style={{ width: '100%', height: '100%', display: 'block', pointerEvents: 'none' }}
               />
             </Box>
           
@@ -2977,85 +3068,13 @@ const ScoringScreen: React.FC = () => {
         <Text fontSize="xl" fontWeight="700" mb={4} color="white" textTransform="uppercase">
           📋 Play-by-Play
         </Text>
-        {game.plays.length === 0 ? (
-          <Box 
-            textAlign="center" 
-            py={8}
-            bg="rgba(0, 0, 0, 0.3)"
-            borderRadius="lg"
-          >
-            <Text fontSize="md" color="gray.400">
-              No plays logged yet. Use the quick actions to start tracking the drive.
-            </Text>
-          </Box>
-        ) : (
-          <Stack gap={3}>
-            {game.plays
-              .slice()
-              .reverse()
-              .map((play, index) => {
-                const playerName = roster.find(p => p.id === play.playerId)?.name || 'Team';
-                const isRecent = index < 3;
-                return (
-                  <Box
-                    key={play.id}
-                    border="2px solid"
-                    borderColor={isRecent ? 'yellow.400' : 'gray.600'}
-                    borderRadius="lg"
-                    px={4}
-                    py={3}
-                    bg={isRecent ? 'rgba(250, 204, 21, 0.1)' : 'rgba(0, 0, 0, 0.4)'}
-                    _hover={{ bg: 'rgba(250, 204, 21, 0.15)', borderColor: 'yellow.400' }}
-                    transition="all 0.2s"
-                  >
-                    <Stack 
-                      direction={{ base: 'column', md: 'row' }}
-                      justify="space-between"
-                      align={{ base: 'flex-start', md: 'center' }}
-                      gap={2}
-                    >
-                      <Stack gap={1} flex={1}>
-                        <Text fontWeight="700" color="white" fontSize="md">
-                          {play.description
-                            ? play.description
-                            : `${playerName} - ${play.type} ${
-                                play.yards === 0 ? '- no gain' : `${play.yards > 0 ? '+' : ''}${play.yards} yards`
-                              }`}
-                        </Text>
-                        <Text fontSize="sm" color="gray.400" fontFamily="mono">
-                          {play.quarter && `Q${play.quarter} • `}
-                          {play.down && play.distance && `${play.down} & ${play.distance} • `}
-                          {formatTime(play.timestamp)}
-                        </Text>
-                      </Stack>
-                      <Stack direction="row" gap={2}>
-                        <Button
-                          size="sm"
-                          bg="blue.600"
-                          color="white"
-                          _hover={{ bg: 'blue.500' }}
-                          onClick={() => openPlayEditor(play)}
-                          fontWeight="600"
-                        >
-                          ✏️ Edit
-                        </Button>
-                        <Button
-                          size="sm"
-                          bg="red.600"
-                          color="white"
-                          _hover={{ bg: 'red.500' }}
-                          onClick={() => deletePlay(play.id)}
-                          fontWeight="600"
-                        >
-                          🗑️ Delete
-                        </Button>
-                      </Stack>
-                    </Stack>
-                  </Box>
-                );
-              })}
-          </Stack>
-        )}
+        <EnhancedPlayByPlayTable
+          game={game}
+          teamName={teamName}
+          opponentName={opponentName}
+          onEditPlay={(play) => openPlayEditor(play)}
+          onDeletePlay={(playId) => deletePlay(playId)}
+        />
       </Box>
 
       {/* Player Picker Modal */}
