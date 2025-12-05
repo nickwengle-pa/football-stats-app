@@ -140,16 +140,16 @@ export type GameSite = 'home' | 'away' | 'neutral';
 export interface PlayParticipant {
   playerId: UUID;
   role:
-    | 'rusher'
-    | 'passer'
-    | 'receiver'
-    | 'tackler'
-    | 'assist'
-    | 'kicker'
-    | 'holder'
-    | 'returner'
-    | 'blocker'
-    | 'other';
+  | 'rusher'
+  | 'passer'
+  | 'receiver'
+  | 'tackler'
+  | 'assist'
+  | 'kicker'
+  | 'holder'
+  | 'returner'
+  | 'blocker'
+  | 'other';
   credit?: number;
 }
 
@@ -164,7 +164,7 @@ export enum PlayType {
   KNEEL = 'kneel',
   LATERAL = 'lateral',
   BAD_SNAP = 'bad_snap',
-  
+
   // Scoring plays
   RUSH_TD = 'rush_td',
   PASS_TD = 'pass_td',
@@ -175,7 +175,7 @@ export enum PlayType {
   TWO_POINT_CONVERSION_MADE = 'two_point_conversion_made',
   TWO_POINT_CONVERSION_FAILED = 'two_point_conversion_failed',
   SAFETY = 'safety',
-  
+
   // Defensive plays
   TACKLE = 'tackle',
   TACKLE_FOR_LOSS = 'tackle_for_loss',
@@ -183,17 +183,40 @@ export enum PlayType {
   INTERCEPTION = 'interception',
   FUMBLE_RECOVERY = 'fumble_recovery',
   PASS_DEFENSED = 'pass_defensed',
-  
+
   // Special teams
   KICKOFF = 'kickoff',
   KICKOFF_RETURN = 'kickoff_return',
   PUNT = 'punt',
   PUNT_RETURN = 'punt_return',
-  
+  BLOCKED_PUNT = 'blocked_punt',
+  BLOCKED_FIELD_GOAL = 'blocked_field_goal',
+  BLOCKED_PAT = 'blocked_pat',
+
   // Penalties and other
   PENALTY = 'penalty',
   TIMEOUT = 'timeout',
+  DROP = 'drop',
+  MISSED_TACKLE = 'missed_tackle',
+  FORCED_FUMBLE = 'forced_fumble',
   OTHER = 'other'
+}
+
+export enum PenaltyType {
+  HOLDING = 'Holding',
+  ILLEGAL_PROCEDURE = 'Illegal Procedure',
+  OFFSIDES = 'Offsides',
+  CLIPPING = 'Clipping',
+  DELAY_OF_GAME = 'Delay of Game',
+  FALSE_START = 'False Start',
+  GROUNDING = 'Intentional Grounding',
+  PERSONAL_FOUL = 'Personal Foul',
+  ROUGHING_KICKER = 'Roughing the Kicker',
+  FACE_MASK = 'Face Mask',
+  ILLEGAL_BLOCK = 'Illegal Block',
+  UNSPORTSMANLIKE = 'Unsportsmanlike Conduct',
+  PASS_INTERFERENCE = 'Pass Interference',
+  OTHER = 'Other'
 }
 
 // Legacy type for backward compatibility during migration
@@ -207,6 +230,8 @@ export interface Play {
   id: UUID;
   type: PlayType;
   yards: number;
+  yardsLost?: number; // Explicitly track lost yards (e.g. sacks, TFL)
+  penaltyType?: PenaltyType;
   playerId?: UUID;
   primaryPlayerId?: UUID;
   /** Which side this play belongs to. Defaults to home if not set. */
@@ -244,17 +269,17 @@ export interface Game {
   isPlayoff?: boolean;
   playoffRound?: string;
   rules?: GameRules;
-  
+
   // Preferred: Use myTeamSnapshot for roster data
   myTeamSnapshot?: GameRosterSnapshot;
-  
+
   // Preferred: Use opponentSnapshot for opponent roster
   opponentSnapshot?: GameRosterSnapshot;
-  
+
   plays: Play[];
   homeScore: number;
   oppScore: number;
-  
+
   // Game state for resuming
   currentQuarter?: number;
   timeRemaining?: number;
@@ -269,28 +294,28 @@ export interface Game {
   homeTopSeconds?: number;
   awayTopSeconds?: number;
   openingKickoffReceiver?: 'home' | 'away' | null; // Track who received opening kickoff for halftime logic
-  
+
   // TurboStats-style tracking
   homeFirstDowns?: number; // Total first downs earned by home team
   awayFirstDowns?: number; // Total first downs earned by away team
   hashMark?: HashMark; // Current ball hash mark position
-  
+
   // DEPRECATED: Use myTeamSnapshot.roster instead
   // Kept for backward compatibility during migration
   /** @deprecated Use myTeamSnapshot.roster instead */
   homePlayers?: Player[];
-  
+
   // DEPRECATED: Use opponentName instead
   /** @deprecated Use opponentName instead for consistency */
   opponent?: string;
-  
+
   // Preferred: Single source of truth for opponent name
   opponentName?: string;
-  
+
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
   notes?: string;
   tags?: string[];
 }
 
-export {};
+export { };
