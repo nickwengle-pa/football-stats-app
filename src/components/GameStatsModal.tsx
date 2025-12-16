@@ -18,12 +18,14 @@ import {
 } from '@chakra-ui/react';
 import { Game, Player } from '../models';
 import { calculateGameStats, TeamGameStats } from '../utils/gameStatsUtils';
+import { getMyTeamRoster } from '../utils/gameUtils';
 
 interface GameStatsModalProps {
     isOpen: boolean;
     onClose: () => void;
     game: Game;
     teamId: string;
+    currentRoster?: Player[];
 }
 
 const StatBox = ({ label, value, subLabel, color = 'white' }: { label: string; value: string | number; subLabel?: string; color?: string }) => (
@@ -58,27 +60,27 @@ const PlayerStatTable = ({
     renderRow: (player: Player, stats: TeamGameStats) => React.ReactNode;
 }) => (
     <Box overflowX="auto">
-        <TableRoot>
+        <TableRoot size="sm" variant="outline">
             <TableHeader>
                 <TableRow>
-                    <TableColumnHeader color="gray.400">Player</TableColumnHeader>
+                    <TableColumnHeader color="gray.400" borderColor="gray.700">Player</TableColumnHeader>
                     {headers.map((h, i) => (
-                        <TableColumnHeader key={i} color="gray.400" textAlign="right">{h}</TableColumnHeader>
+                        <TableColumnHeader key={i} color="gray.400" textAlign="right" borderColor="gray.700">{h}</TableColumnHeader>
                     ))}
                 </TableRow>
             </TableHeader>
             <TableBody>
                 {data.map(({ player, stats }) => (
-                    <TableRow key={player.id}>
-                        <TableCell fontWeight="bold" color="white">
-                            #{player.jerseyNumber} {player.lastName}
+                    <TableRow key={player.id} _hover={{ bg: 'whiteAlpha.50' }}>
+                        <TableCell fontWeight="bold" color="white" borderColor="gray.700">
+                            #{player.jerseyNumber} {player.name || player.lastName}
                         </TableCell>
                         {renderRow(player, stats)}
                     </TableRow>
                 ))}
                 {data.length === 0 && (
                     <TableRow>
-                        <TableCell colSpan={headers.length + 1} textAlign="center" color="gray.500">
+                        <TableCell colSpan={headers.length + 1} textAlign="center" color="gray.500" borderColor="gray.700">
                             No stats recorded
                         </TableCell>
                     </TableRow>
@@ -88,7 +90,7 @@ const PlayerStatTable = ({
     </Box>
 );
 
-export const GameStatsModal: React.FC<GameStatsModalProps> = ({ isOpen, onClose, game, teamId }) => {
+export const GameStatsModal: React.FC<GameStatsModalProps> = ({ isOpen, onClose, game, teamId, currentRoster }) => {
     const { teamStats, playerStats } = useMemo(() => calculateGameStats(game, teamId), [game, teamId]);
     const [viewMode, setViewMode] = useState<'team' | 'player'>('team');
     const [playerTab, setPlayerTab] = useState('Passing');
@@ -96,19 +98,36 @@ export const GameStatsModal: React.FC<GameStatsModalProps> = ({ isOpen, onClose,
     // Get roster map for player names
     const rosterMap = useMemo(() => {
         const map = new Map<string, Player>();
-        const roster = game.myTeamSnapshot?.roster || [];
+        let roster = getMyTeamRoster(game);
+
+        // Fallback to current roster if game roster is empty
+        if (roster.length === 0 && currentRoster && currentRoster.length > 0) {
+            console.log('Using current roster fallback');
+            roster = currentRoster;
+        }
+
+        console.log('Roster:', roster);
         roster.forEach(p => map.set(p.id, p));
         return map;
-    }, [game]);
+    }, [game, currentRoster]);
 
-    const getPlayer = (id: string) => rosterMap.get(id) || { id, lastName: 'Unknown', jerseyNumber: 0 } as Player;
+    const getPlayer = (id: string) => {
+        const player = rosterMap.get(id);
+        if (!player) {
+            console.warn(`Player not found in roster: ${id}. Available IDs:`, Array.from(rosterMap.keys()));
+            return { id, lastName: 'Unknown', jerseyNumber: 0 } as Player;
+        }
+        return player;
+    };
 
     // Filter players for each category
     const getPlayersWithStats = (filter: (s: TeamGameStats) => boolean) => {
-        return Object.entries(playerStats)
+        const players = Object.entries(playerStats)
             .filter(([_, stats]) => filter(stats))
             .map(([id, stats]) => ({ player: getPlayer(id), stats }))
             .sort((a, b) => (a.player.jerseyNumber || 0) - (b.player.jerseyNumber || 0));
+        console.log('Players with stats:', players);
+        return players;
     };
 
     if (!isOpen) return null;
@@ -162,7 +181,7 @@ export const GameStatsModal: React.FC<GameStatsModalProps> = ({ isOpen, onClose,
                 {/* Content */}
                 <Box p={0} overflowY="auto" flex={1}>
                     {/* View Mode Tabs */}
-                    <HStack gap={0} bg="gray.800" borderBottom="1px solid" borderColor="gray.700">
+                    <HStack mb={4} flexWrap="wrap" gap={2} px={6} pt={4}>
                         <Button
                             flex={1}
                             variant="ghost"
@@ -189,7 +208,7 @@ export const GameStatsModal: React.FC<GameStatsModalProps> = ({ isOpen, onClose,
                         </Button>
                     </HStack>
 
-                    <Box p={6}>
+                    <Box px={6} pb={6}>
                         {viewMode === 'team' ? (
                             <Grid templateColumns={{ base: '1fr', lg: 'repeat(3, 1fr)' }} gap={6}>
                                 {/* Column 1: Offense (Run/Rec/Pass) */}
@@ -362,7 +381,12 @@ export const GameStatsModal: React.FC<GameStatsModalProps> = ({ isOpen, onClose,
                                             size="sm"
                                             variant={playerTab === tab ? 'solid' : 'outline'}
                                             colorScheme="blue"
+                                            color={playerTab === tab ? 'white' : 'blue.200'}
+                                            borderColor={playerTab === tab ? undefined : 'blue.400'}
                                             onClick={() => setPlayerTab(tab)}
+                                            _hover={{
+                                                bg: playerTab === tab ? 'blue.600' : 'whiteAlpha.100'
+                                            }}
                                         >
                                             {tab}
                                         </Button>
@@ -375,11 +399,11 @@ export const GameStatsModal: React.FC<GameStatsModalProps> = ({ isOpen, onClose,
                                         data={getPlayersWithStats(s => s.passingAttempts > 0)}
                                         renderRow={(p, s) => (
                                             <>
-                                                <TableCell textAlign="right">{s.completions}/{s.passingAttempts}</TableCell>
-                                                <TableCell textAlign="right">{s.passingYards}</TableCell>
-                                                <TableCell textAlign="right">{s.passingTds}</TableCell>
-                                                <TableCell textAlign="right">{s.interceptions}</TableCell>
-                                                <TableCell textAlign="right">{s.qbRating}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.completions}/{s.passingAttempts}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.passingYards}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.passingTds}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.interceptions}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.qbRating}</TableCell>
                                             </>
                                         )}
                                     />
@@ -391,11 +415,11 @@ export const GameStatsModal: React.FC<GameStatsModalProps> = ({ isOpen, onClose,
                                         data={getPlayersWithStats(s => s.rushingAttempts > 0)}
                                         renderRow={(p, s) => (
                                             <>
-                                                <TableCell textAlign="right">{s.rushingAttempts}</TableCell>
-                                                <TableCell textAlign="right">{s.rushingYards}</TableCell>
-                                                <TableCell textAlign="right">{(s.rushingYards / (s.rushingAttempts || 1)).toFixed(1)}</TableCell>
-                                                <TableCell textAlign="right">{s.rushingLongest}</TableCell>
-                                                <TableCell textAlign="right">{s.rushingTds}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.rushingAttempts}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.rushingYards}</TableCell>
+                                                <TableCell color="white" textAlign="right">{(s.rushingYards / (s.rushingAttempts || 1)).toFixed(1)}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.rushingLongest}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.rushingTds}</TableCell>
                                             </>
                                         )}
                                     />
@@ -407,12 +431,12 @@ export const GameStatsModal: React.FC<GameStatsModalProps> = ({ isOpen, onClose,
                                         data={getPlayersWithStats(s => s.receptions > 0 || s.receivingAttempts > 0)}
                                         renderRow={(p, s) => (
                                             <>
-                                                <TableCell textAlign="right">{s.receptions}</TableCell>
-                                                <TableCell textAlign="right">{s.receivingAttempts}</TableCell>
-                                                <TableCell textAlign="right">{s.receivingYards}</TableCell>
-                                                <TableCell textAlign="right">{(s.receivingYards / (s.receptions || 1)).toFixed(1)}</TableCell>
-                                                <TableCell textAlign="right">{s.receivingLongest}</TableCell>
-                                                <TableCell textAlign="right">{s.receivingTds}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.receptions}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.receivingAttempts}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.receivingYards}</TableCell>
+                                                <TableCell color="white" textAlign="right">{(s.receivingYards / (s.receptions || 1)).toFixed(1)}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.receivingLongest}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.receivingTds}</TableCell>
                                             </>
                                         )}
                                     />
@@ -424,12 +448,12 @@ export const GameStatsModal: React.FC<GameStatsModalProps> = ({ isOpen, onClose,
                                         data={getPlayersWithStats(s => s.tackles > 0 || s.sacksMade > 0 || s.interceptionsMade > 0 || s.passBreakups > 0)}
                                         renderRow={(p, s) => (
                                             <>
-                                                <TableCell textAlign="right">{s.tackles}</TableCell>
-                                                <TableCell textAlign="right">{s.tacklesForLoss}</TableCell>
-                                                <TableCell textAlign="right">{s.sacksMade}</TableCell>
-                                                <TableCell textAlign="right">{s.interceptionsMade}</TableCell>
-                                                <TableCell textAlign="right">{s.forcedFumbles}</TableCell>
-                                                <TableCell textAlign="right">{s.passBreakups}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.tackles}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.tacklesForLoss}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.sacksMade}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.interceptionsMade}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.forcedFumbles}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.passBreakups}</TableCell>
                                             </>
                                         )}
                                     />
@@ -441,11 +465,11 @@ export const GameStatsModal: React.FC<GameStatsModalProps> = ({ isOpen, onClose,
                                         data={getPlayersWithStats(s => s.fieldGoalsAttempted > 0 || s.extraPointsAttempted > 0 || s.punts > 0)}
                                         renderRow={(p, s) => (
                                             <>
-                                                <TableCell textAlign="right">{s.fieldGoalsMade}/{s.fieldGoalsAttempted}</TableCell>
-                                                <TableCell textAlign="right">{s.fieldGoalLongest}</TableCell>
-                                                <TableCell textAlign="right">{s.extraPointsMade}/{s.extraPointsAttempted}</TableCell>
-                                                <TableCell textAlign="right">{s.punts}</TableCell>
-                                                <TableCell textAlign="right">{(s.puntYards / (s.punts || 1)).toFixed(1)}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.fieldGoalsMade}/{s.fieldGoalsAttempted}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.fieldGoalLongest}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.extraPointsMade}/{s.extraPointsAttempted}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.punts}</TableCell>
+                                                <TableCell color="white" textAlign="right">{(s.puntYards / (s.punts || 1)).toFixed(1)}</TableCell>
                                             </>
                                         )}
                                     />
@@ -457,12 +481,12 @@ export const GameStatsModal: React.FC<GameStatsModalProps> = ({ isOpen, onClose,
                                         data={getPlayersWithStats(s => s.kickoffReturns > 0 || s.puntReturns > 0)}
                                         renderRow={(p, s) => (
                                             <>
-                                                <TableCell textAlign="right">{s.kickoffReturns}</TableCell>
-                                                <TableCell textAlign="right">{s.kickoffReturnYards}</TableCell>
-                                                <TableCell textAlign="right">{s.kickoffReturnTds}</TableCell>
-                                                <TableCell textAlign="right">{s.puntReturns}</TableCell>
-                                                <TableCell textAlign="right">{s.puntReturnYards}</TableCell>
-                                                <TableCell textAlign="right">{s.puntReturnTds}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.kickoffReturns}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.kickoffReturnYards}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.kickoffReturnTds}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.puntReturns}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.puntReturnYards}</TableCell>
+                                                <TableCell color="white" textAlign="right">{s.puntReturnTds}</TableCell>
                                             </>
                                         )}
                                     />

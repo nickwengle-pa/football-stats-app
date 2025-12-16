@@ -34,6 +34,7 @@ import { YardKeypad } from './ui/YardKeypad';
 import { GameStatsModal } from './GameStatsModal';
 import { useProgram } from '../context/ProgramContext';
 import { getOpponentName, getMyTeamRoster } from '../utils/gameUtils';
+import { HalftimeModal } from './HalftimeModal';
 
 type FeedbackState = {
   status: 'success' | 'error' | 'info';
@@ -219,6 +220,9 @@ const ScoringScreen: React.FC = () => {
   // Keypad state
   const [keypadOpen, setKeypadOpen] = useState<'start' | 'end' | 'total' | null>(null);
   const [keypadLabel, setKeypadLabel] = useState<string>('');
+
+  // Halftime Modal
+  const { open: isHalftimeOpen, onOpen: onHalftimeOpen, onClose: onHalftimeClose } = useDisclosure();
 
   const ensurePlaceholderPlayer = useCallback((list: Player[]) => {
     const has100 = list.some((p) => p.jerseyNumber?.toString() === '100');
@@ -487,12 +491,19 @@ const ScoringScreen: React.FC = () => {
 
   // TurboStats: Initialize first down counters if undefined
   useEffect(() => {
-    if (game && (game.homeFirstDowns === undefined || game.awayFirstDowns === undefined)) {
-      setGame({
-        ...game,
-        homeFirstDowns: game.homeFirstDowns ?? 0,
-        awayFirstDowns: game.awayFirstDowns ?? 0,
-      });
+    if (game) {
+      // Initialize first downs if missing
+      if (game.homeFirstDowns === undefined || game.awayFirstDowns === undefined) {
+        setGame({
+          ...game,
+          homeFirstDowns: game.homeFirstDowns ?? 0,
+          awayFirstDowns: game.awayFirstDowns ?? 0,
+        });
+      }
+      // Initialize Hash Mark from game if present
+      if (game.hashMark && game.hashMark !== hashMark) {
+        setHashMark(game.hashMark);
+      }
     }
   }, [game]);
 
@@ -556,6 +567,13 @@ const ScoringScreen: React.FC = () => {
   const confirmQuarterChange = async () => {
     if (!pendingQuarterChange) return;
 
+    // Check if we are starting the 3rd quarter (Halftime)
+    if (pendingQuarterChange.newQuarter === 3) {
+      onQuarterChangeClose();
+      onHalftimeOpen();
+      return;
+    }
+
     // Calculate time of possession for the quarter that just ended
     const quarterElapsed = 12 * 60 - timeRemaining;
     recordPossessionTime(possession);
@@ -574,25 +592,7 @@ const ScoringScreen: React.FC = () => {
     // Swap field direction (quarters 2 and 4 swap directions)
     const willSwapDirection = pendingQuarterChange.newQuarter === 2 || pendingQuarterChange.newQuarter === 4;
     if (willSwapDirection) {
-      swapDirection();
-    }
-
-    // Handle halftime kickoff (start of Q3)
-    // The team that received the opening kickoff kicks off at halftime
-    if (pendingQuarterChange.newQuarter === 3 && openingKickoffReceiver) {
-      const halftimeKickingTeam = openingKickoffReceiver; // The team that received opening kickoff now kicks
-
-      await logGameEvent(
-        `Second half kickoff by ${halftimeKickingTeam === 'home' ? teamName : opponentName}`,
-        PlayType.OTHER
-      );
-
-      // Setup kickoff modal for halftime kickoff
-      setPendingKickoff({ kickingTeam: halftimeKickingTeam });
-      setClockMinutes(Math.floor(timeRemaining / 60));
-      setClockSeconds(timeRemaining % 60);
-      setPendingPossessionReason(`Halftime kickoff by ${halftimeKickingTeam === 'home' ? teamName : opponentName}`);
-      onPossessionPromptOpen();
+      setDirection(direction === 'left-to-right' ? 'right-to-left' : 'left-to-right');
     }
 
     // Log quarter change to play-by-play
@@ -609,6 +609,57 @@ const ScoringScreen: React.FC = () => {
       status: 'success',
       message: `Quarter ${pendingQuarterChange.newQuarter} started. Direction swapped. Clock reset to 12:00.`
     });
+  };
+
+  const handleHalftimeConfirm = async (receivingTeam: 'home' | 'away', homeDefendingGoal: 'left' | 'right') => {
+    if (!pendingQuarterChange) return;
+
+    // Calculate time of possession for Q2
+    const quarterElapsed = 12 * 60 - timeRemaining;
+    recordPossessionTime(possession);
+
+    // Set new quarter to 3
+    setCurrentQuarter(3);
+
+    // Reset clock to 12:00
+    setTimeRemaining(12 * 60);
+    setIsClockRunning(false);
+    setPossessionClockStart(12 * 60);
+
+    // Set Possession (Kickoff Team has possession for the kickoff play)
+    // Receiving team is the one catching the ball, so the OTHER team kicks off.
+    const kickingTeam = receivingTeam === 'home' ? 'away' : 'home';
+    setPossession(kickingTeam);
+
+    // Set Direction based on Home Defending Goal
+    const newDirection = homeDefendingGoal === 'left' ? 'left-to-right' : 'right-to-left';
+    setDirection(newDirection);
+
+    // Set Field Position for Kickoff (typically 40 yard line of kicking team)
+    let kickoffSpot = 40;
+    if (newDirection === 'left-to-right') {
+      kickoffSpot = kickingTeam === 'home' ? 40 : 60;
+    } else {
+      kickoffSpot = kickingTeam === 'home' ? 60 : 40;
+    }
+    setFieldPosition(kickoffSpot);
+
+    // Log Q3 Start
+    await logGameEvent(
+      `Quarter 3 started. ${receivingTeam === 'home' ? teamName : opponentName} receives. ${teamName} defends ${homeDefendingGoal} goal.`,
+      PlayType.OTHER
+    );
+
+    setPendingQuarterChange(null);
+    setFeedback({
+      status: 'success',
+      message: `Quarter 3 started. ${receivingTeam === 'home' ? 'We' : 'Opponent'} receive.`
+    });
+
+    // Prompt for Kickoff
+    setPendingKickoff({ kickingTeam });
+    setPendingPossessionReason(`Kickoff start of Q3`);
+    onPossessionPromptOpen();
   };
 
   // Helper function to log game events to play-by-play
@@ -1973,6 +2024,7 @@ const ScoringScreen: React.FC = () => {
     const isTouchdown = isPassTD || isRushTD;
     const isInterception = playInput.type === PlayType.INTERCEPTION;
     const isKickoff = playInput.type === PlayType.KICKOFF;
+    const isSafety = playInput.type === PlayType.SAFETY;
 
     // For TDs (both pass and rush), calculate yardage to goal line automatically
     let actualYards: number;
@@ -2081,6 +2133,9 @@ const ScoringScreen: React.FC = () => {
       playDescription += ' (Penalty on play)';
     }
 
+    // Calculate First Down
+    const isFirstDown = !isTouchdown && !isInterception && !isKickoff && !isSafety && actualYards >= yardsToGo;
+
     const play: Play = {
       id: uuidv4(),
       type: playInput.type,
@@ -2094,6 +2149,10 @@ const ScoringScreen: React.FC = () => {
       distance: yardsToGo.toString(),
       yardLine: playInput.startYard,
       teamSide: side,
+      resultedInFirstDown: isFirstDown,
+      hashMark: hashMark,
+      offensiveFormation: offensiveFormation || undefined,
+      defensiveFormation: defensiveFormation || undefined,
     };
 
     try {
@@ -2108,6 +2167,18 @@ const ScoringScreen: React.FC = () => {
           nextGame = { ...nextGame, oppScore: (nextGame.oppScore || 0) + 6 };
         }
       }
+
+      // Track first down statistics
+      if (isFirstDown) {
+        if (side === 'home') {
+          nextGame = { ...nextGame, homeFirstDowns: (nextGame.homeFirstDowns || 0) + 1 };
+        } else {
+          nextGame = { ...nextGame, awayFirstDowns: (nextGame.awayFirstDowns || 0) + 1 };
+        }
+      }
+
+      // Update Hash Mark on the game object for persistence
+      nextGame = { ...nextGame, hashMark: hashMark };
 
       // Handle interception possession change - prompt for time first
       if (isInterception) {
@@ -2200,6 +2271,42 @@ const ScoringScreen: React.FC = () => {
         onPuntOutcomeOpen();
 
         // Don't close play input modal yet
+        return;
+        // Don't close play input modal yet
+        return;
+      }
+
+      // Handle Safety - prompt for Free Kick
+      if (isSafety) {
+        // Update Score: Defense gets 2 points
+        if (side === 'home') {
+          nextGame = { ...nextGame, oppScore: (nextGame.oppScore || 0) + 2 };
+        } else {
+          nextGame = { ...nextGame, homeScore: (nextGame.homeScore || 0) + 2 };
+        }
+
+        setGame(nextGame);
+        await saveGame(nextGame, { teamId, seasonId: activeSeasonId });
+
+        setFeedback({
+          status: 'success',
+          message: `Safety recorded. ${side === 'home' ? opponentName : teamName} gets 2 points.`
+        });
+
+        // Setup Free Kick
+        // The team that was tackled (side) kicks off from the 20
+        setPendingKickoff({ kickingTeam: side });
+        setPendingPossessionReason('Free Kick after Safety');
+        setFieldPosition(20);
+        setPossession(side); // Ensure possession is set to kicking team for the setup
+
+        onPossessionPromptOpen();
+
+        // Reset generic inputs
+        onPlayInputClose();
+        setPlayInput(null);
+        setSelectedPlayType(null);
+
         return;
       }
 
@@ -4462,6 +4569,26 @@ const ScoringScreen: React.FC = () => {
                                 Loss of yards counts against QB rushing stats
                               </Text>
                             )}
+
+                            {/* Hash Mark Selector */}
+                            <Box mb={2}>
+                              <Flex bg="rgba(0, 0, 0, 0.4)" p={1} borderRadius="md" border="1px solid" borderColor="gray.700">
+                                {['left', 'middle', 'right'].map((hash) => (
+                                  <Button
+                                    key={hash}
+                                    flex={1}
+                                    size="xs"
+                                    variant={hashMark === hash ? 'solid' : 'ghost'}
+                                    colorScheme={hashMark === hash ? 'blue' : 'gray'}
+                                    onClick={() => setHashMark(hash as HashMark)}
+                                    textTransform="capitalize"
+                                  >
+                                    {hash}
+                                  </Button>
+                                ))}
+                              </Flex>
+                            </Box>
+
                             <Stack direction="row" gap={2} align="center">
                               <Text color="white" fontSize="sm" minW="80px">Start:</Text>
                               <HStack>
@@ -4550,6 +4677,70 @@ const ScoringScreen: React.FC = () => {
                             </Text>
                           </>
                         )}
+                      </Box>
+                    )}
+
+                    {/* Formation Selection */}
+                    {!showPlayerSelection && playInput.type !== PlayType.PUNT && (
+                      <Box mt={4} p={3} bg="rgba(0, 0, 0, 0.4)" borderRadius="md" border="1px solid" borderColor="gray.600">
+                        <Text fontSize="sm" fontWeight="600" color="gray.300" mb={2}>
+                          Formations (Optional)
+                        </Text>
+                        <SimpleGrid columns={2} gap={3}>
+                          <Box>
+                            <Text fontSize="xs" color="gray.500" mb={1}>OFFENSE</Text>
+                            <select
+                              value={offensiveFormation || ''}
+                              onChange={(e) => setOffensiveFormation(e.target.value as OffensiveFormation || null)}
+                              style={{
+                                width: '100%',
+                                padding: '8px',
+                                backgroundColor: 'rgba(0,0,0,0.5)',
+                                color: 'white',
+                                border: '1px solid #4A5568',
+                                borderRadius: '4px'
+                              }}
+                            >
+                              <option value="">Select...</option>
+                              <option value="I-Form">I-Form</option>
+                              <option value="Shotgun">Shotgun</option>
+                              <option value="Pistol">Pistol</option>
+                              <option value="Singleback">Singleback</option>
+                              <option value="Wildcat">Wildcat</option>
+                              <option value="Empty">Empty</option>
+                              <option value="Trips">Trips</option>
+                              <option value="Spread">Spread</option>
+                              <option value="Goal Line">Goal Line</option>
+                              <option value="Other">Other</option>
+                            </select>
+                          </Box>
+                          <Box>
+                            <Text fontSize="xs" color="gray.500" mb={1}>DEFENSE</Text>
+                            <select
+                              value={defensiveFormation || ''}
+                              onChange={(e) => setDefensiveFormation(e.target.value as DefensiveFormation || null)}
+                              style={{
+                                width: '100%',
+                                padding: '8px',
+                                backgroundColor: 'rgba(0,0,0,0.5)',
+                                color: 'white',
+                                border: '1px solid #4A5568',
+                                borderRadius: '4px'
+                              }}
+                            >
+                              <option value="">Select...</option>
+                              <option value="4-3">4-3</option>
+                              <option value="3-4">3-4</option>
+                              <option value="4-4">4-4</option>
+                              <option value="Nickel">Nickel</option>
+                              <option value="Dime">Dime</option>
+                              <option value="Quarter">Quarter</option>
+                              <option value="Goal Line">Goal Line</option>
+                              <option value="Prevent">Prevent</option>
+                              <option value="Other">Other</option>
+                            </select>
+                          </Box>
+                        </SimpleGrid>
                       </Box>
                     )}
 
@@ -5152,6 +5343,25 @@ const ScoringScreen: React.FC = () => {
                         fontWeight="700"
                       >
                         CT (Center)
+                      </Button>
+                      <Button
+                        size="sm"
+                        bg="teal.600"
+                        color="white"
+                        _hover={{ bg: 'teal.500' }}
+                        onClick={() => {
+                          const isHomeReceiving = pendingKickoffReturn.kickingTeam !== 'home';
+                          const tbSide = isHomeReceiving ? 'PL' : 'CT';
+                          setReturnYardSide(tbSide);
+                          setReturnYardValue('20');
+                          const actualYard = convertFromPlCt(tbSide, 20);
+                          setPlayInput(prev => prev ? { ...prev, endYard: actualYard } : prev);
+                          setShowReturnYardPad(false);
+                        }}
+                        flex={1}
+                        fontWeight="700"
+                      >
+                        Touchback (20)
                       </Button>
                     </HStack>
 
@@ -5773,6 +5983,23 @@ const ScoringScreen: React.FC = () => {
                           >
                             CT (Center)
                           </Button>
+                          <Button
+                            size="sm"
+                            bg="teal.600"
+                            color="white"
+                            _hover={{ bg: 'teal.500' }}
+                            onClick={() => {
+                              const isHomeReceiving = pendingPuntReturn.puntingTeam !== 'home';
+                              const tbSide = isHomeReceiving ? 'PL' : 'CT';
+                              setPuntReturnYardSide(tbSide);
+                              setPuntReturnYardValue('20');
+                              setShowPuntReturnYardPad(false);
+                            }}
+                            flex={1}
+                            fontWeight="700"
+                          >
+                            Touchback (20)
+                          </Button>
                         </HStack>
 
                         {/* Yard Line Input with Number Pad */}
@@ -6322,8 +6549,18 @@ const ScoringScreen: React.FC = () => {
           onClose={onGameStatsClose}
           game={game}
           teamId={teamId}
+          currentRoster={roster}
         />
       )}
+
+      {/* Halftime Modal */}
+      <HalftimeModal
+        isOpen={isHalftimeOpen}
+        onClose={onHalftimeClose}
+        onConfirm={handleHalftimeConfirm}
+        homeTeamName={teamName}
+        awayTeamName={opponentName}
+      />
     </Stack>
   );
 };

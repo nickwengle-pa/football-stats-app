@@ -147,6 +147,7 @@ export const calculateGameStats = (game: Game, teamId: string): GameStatsReport 
             switch (play.type) {
                 case PlayType.RUSH:
                 case PlayType.RUSH_TD:
+                case PlayType.KNEEL: // Kneels count as rushing attempts
                     teamStats.rushingAttempts++;
                     teamStats.rushingYards += play.yards;
                     if (play.yards > 0) teamStats.rushingYardsPositive += play.yards;
@@ -162,6 +163,14 @@ export const calculateGameStats = (game: Game, teamId: string): GameStatsReport 
                         ps.rushingLongest = Math.max(ps.rushingLongest, play.yards);
                         if (play.type === PlayType.RUSH_TD) ps.rushingTds++;
                     });
+
+                    // Specific handling for KNEEL if not assigned to rusher explicitly
+                    if (play.type === PlayType.KNEEL && (!play.participants || !play.participants.some(p => p.role === 'rusher')) && play.playerId) {
+                        const ps = getOrCreatePlayerStats(play.playerId);
+                        ps.rushingAttempts++;
+                        ps.rushingYards += play.yards;
+                        ps.rushingYardsNegative += Math.abs(play.yards);
+                    }
                     break;
 
                 case PlayType.PASS_COMPLETE:
@@ -222,11 +231,22 @@ export const calculateGameStats = (game: Game, teamId: string): GameStatsReport 
 
                 case PlayType.SACK:
                     teamStats.sacks++;
-                    teamStats.sackYards += Math.abs(play.yards); // Sacks are usually negative yards
+                    teamStats.sackYards += Math.abs(play.yards);
+
+                    // In NFHS/NCAA, Sacks count as Rushing Attempts for negative yards
+                    teamStats.rushingAttempts++;
+                    teamStats.rushingYards += play.yards; // play.yards is negative for sacks
+                    teamStats.rushingYardsNegative += Math.abs(play.yards);
+
 
                     attributeToRole('passer', (ps) => {
                         ps.sacks++;
                         ps.sackYards += Math.abs(play.yards);
+
+                        // Sacked player gets a rush attempt and negative rushing yards
+                        ps.rushingAttempts++;
+                        ps.rushingYards += play.yards;
+                        ps.rushingYardsNegative += Math.abs(play.yards);
                     });
                     break;
 

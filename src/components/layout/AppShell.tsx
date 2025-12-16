@@ -16,6 +16,7 @@ const navItems: NavItem[] = [
   { label: 'Schedule', to: '/' },
   { label: 'Scoring', to: '/scoring/:gameId' },
   { label: 'Reports', to: '/reports/:gameId' },
+  { label: 'Publish', to: '/publish' },
 ];
 
 const isActivePath = (pathname: string, target: string) => {

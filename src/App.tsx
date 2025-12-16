@@ -7,6 +7,7 @@ import ReportsScreen from './components/ReportsScreen';
 import PlayerStatsScreen from './components/PlayerStatsScreen';
 import TeamManager from './components/TeamManager';
 import CleanDuplicatePlays from './components/CleanDuplicatePlays';
+import PublishSeason from './components/PublishSeason';
 import { AppShell } from './components/layout/AppShell';
 import { ProgramProvider, useProgram } from './context/ProgramContext';
 import { ErrorBoundary, SectionErrorBoundary } from './components/ErrorBoundary';
@@ -76,6 +77,11 @@ const AppRoutes: React.FC = () => {
           <Route path="/clean-duplicates" element={
             <SectionErrorBoundary>
               <CleanDuplicatePlays />
+            </SectionErrorBoundary>
+          } />
+          <Route path="/publish" element={
+            <SectionErrorBoundary>
+              <PublishSeason />
             </SectionErrorBoundary>
           } />
         </Routes>
