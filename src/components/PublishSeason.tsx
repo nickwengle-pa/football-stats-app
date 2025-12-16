@@ -9,12 +9,16 @@ import {
 } from '@chakra-ui/react';
 import { useProgram } from '../context/ProgramContext';
 import { getGames, getSeasonRoster } from '../services/dbService';
-import { buildSeasonStatsExport } from '../services/seasonStatsService';
+import { buildSeasonStatsExport, SeasonStatsExport } from '../services/seasonStatsService';
 import { 
   generatePublicSiteHtml, 
   downloadPublicSiteHtml, 
   previewPublicSite 
 } from '../services/publicSiteGenerator';
+import {
+  isCloudflareConfigured,
+  publishToCloudflare,
+} from '../services/cloudflarePublishService';
 import { SectionCard } from './ui';
 import { showSuccessToast, showErrorToast, showInfoToast } from '../utils/toast';
 
@@ -27,17 +31,20 @@ export const PublishSeason: React.FC = () => {
   
   const [loading, setLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [publishLoading, setPublishLoading] = useState(false);
   const [statsGenerated, setStatsGenerated] = useState(false);
   const [gamesCount, setGamesCount] = useState(0);
   const [playersCount, setPlayersCount] = useState(0);
+  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
   
   const teamId = team?.id;
   const teamName = team?.name || 'Team';
   const mascot = team?.mascot;
   
   const canPublish = teamId && activeSeasonId && activeSeason;
+  const cloudflareEnabled = isCloudflareConfigured();
   
-  const generateStats = useCallback(async () => {
+  const generateStats = useCallback(async (): Promise<SeasonStatsExport | null> => {
     if (!teamId || !activeSeasonId || !activeSeason) {
       showErrorToast('Please select a season to publish');
       return null;
@@ -45,14 +52,8 @@ export const PublishSeason: React.FC = () => {
     
     setLoading(true);
     try {
-      // Fetch all games for the season
-      console.log('Fetching games for team:', teamId, 'season:', activeSeasonId);
       const games = await getGames({ teamId, seasonId: activeSeasonId });
-      console.log('Games fetched:', games.length, games);
-      
-      // Fetch roster
       const roster = await getSeasonRoster(teamId, activeSeasonId);
-      console.log('Roster fetched:', roster.length, roster);
       
       if (games.length === 0) {
         showInfoToast('No games found for this season');
@@ -63,7 +64,6 @@ export const PublishSeason: React.FC = () => {
       setGamesCount(games.length);
       setPlayersCount(roster.length);
       
-      // Build the stats export
       const exportData = buildSeasonStatsExport(
         games,
         roster,
@@ -73,7 +73,6 @@ export const PublishSeason: React.FC = () => {
         mascot
       );
       
-      console.log('Export data built:', exportData);
       setStatsGenerated(true);
       return exportData;
     } catch (error) {
@@ -125,6 +124,33 @@ export const PublishSeason: React.FC = () => {
     }
   }, [generateStats]);
   
+  const handlePublishToCloudflare = useCallback(async () => {
+    setPublishLoading(true);
+    setPublishedUrl(null);
+    
+    try {
+      const exportData = await generateStats();
+      if (!exportData) {
+        setPublishLoading(false);
+        return;
+      }
+      
+      const result = await publishToCloudflare(exportData);
+      
+      if (result.success && result.url) {
+        setPublishedUrl(result.url);
+        showSuccessToast('Published to Cloudflare!');
+      } else {
+        showErrorToast(result.error || 'Failed to publish');
+      }
+    } catch (error) {
+      console.error('Publish error:', error);
+      showErrorToast('Failed to publish. Please try again.');
+    } finally {
+      setPublishLoading(false);
+    }
+  }, [generateStats]);
+  
   if (!canPublish) {
     return (
       <SectionCard title="Publish Season Stats">
@@ -159,10 +185,37 @@ export const PublishSeason: React.FC = () => {
           </Box>
         )}
         
+        {publishedUrl && (
+          <Box 
+            bg="blue.50" 
+            p={3} 
+            borderRadius="md"
+            borderLeft="4px solid"
+            borderColor="blue.400"
+          >
+            <Text fontSize="sm" color="blue.800" mb={2}>
+              <strong>Published!</strong>
+            </Text>
+            <a 
+              href={publishedUrl} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              style={{
+                color: '#2563eb',
+                textDecoration: 'underline',
+                fontSize: '0.875rem',
+                wordBreak: 'break-all',
+                display: 'block'
+              }}
+            >
+              {publishedUrl}
+            </a>
+          </Box>
+        )}
+        
         <Text fontSize="sm" color="gray.600">
           Generate a static HTML page with your season schedule, 
-          team leaders, player statistics, and roster. The page can be hosted 
-          anywhere or shared directly.
+          team leaders, player statistics, and roster.
         </Text>
         
         <HStack gap={3} flexWrap="wrap">
@@ -194,22 +247,47 @@ export const PublishSeason: React.FC = () => {
           >
             Copy to Clipboard
           </Button>
+          
+          {cloudflareEnabled && (
+            <Button
+              colorScheme="orange"
+              onClick={handlePublishToCloudflare}
+              disabled={publishLoading}
+              size="md"
+            >
+              {publishLoading ? <Spinner size="sm" mr={2} /> : null}
+              Publish to Web
+            </Button>
+          )}
         </HStack>
         
-        <Box 
-          bg="gray.50" 
-          p={3} 
-          borderRadius="md" 
-          fontSize="sm" 
-          color="gray.600"
-        >
-          <Text fontWeight="500" mb={1}>Publishing Options:</Text>
-          <Text>
-            • <strong>Preview</strong> - Opens the stats page in a new window<br/>
-            • <strong>Download HTML</strong> - Save as a single HTML file<br/>
-            • <strong>Copy to Clipboard</strong> - Paste into any hosting service
-          </Text>
-        </Box>
+        {!cloudflareEnabled && (
+          <Box 
+            bg="gray.50" 
+            p={3} 
+            borderRadius="md" 
+            fontSize="xs" 
+            color="gray.500"
+          >
+            <Text>
+              💡 To enable direct web publishing, set REACT_APP_CLOUDFLARE_* environment variables.
+            </Text>
+          </Box>
+        )}
+        
+        {cloudflareEnabled && (
+          <Box 
+            bg="green.50" 
+            p={3} 
+            borderRadius="md" 
+            fontSize="sm" 
+            color="green.700"
+          >
+            <Text>
+              ✅ One-click publishing enabled! Click <strong>Publish to Web</strong> to deploy directly.
+            </Text>
+          </Box>
+        )}
       </Stack>
     </SectionCard>
   );

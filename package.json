@@ -19,7 +19,6 @@
     "@types/react-dom": "^18.3.1",
     "@types/react-modal": "^3.16.3",
     "@types/uuid": "^10.0.0",
-    "dotenv": "^17.2.3",
     "firebase": "^12.5.0",
     "framer-motion": "^12.23.24",
     "jspdf": "^3.0.3",
@@ -39,7 +38,8 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "publish-stats": "npx wrangler pages deploy ./publish --project-name=pl-publish"
   },
   "eslintConfig": {
     "extends": [
@@ -68,6 +68,7 @@
     }
   },
   "devDependencies": {
+    "dotenv": "^17.2.3",
     "ts-node": "^10.9.2"
   }
 }
