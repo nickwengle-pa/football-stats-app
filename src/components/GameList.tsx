@@ -162,22 +162,75 @@ const levelOptions: { value: TeamLevel; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
-const formatDateForInput = (timestamp?: Timestamp): string => {
+const formatDateForInput = (timestamp?: Timestamp | Date | string | null): string => {
   if (!timestamp) return '';
-  const date = timestamp.toDate();
-  return date.toISOString().split('T')[0] ?? '';
+  try {
+    // Handle Firestore Timestamp
+    if (timestamp instanceof Timestamp) {
+      return timestamp.toDate().toISOString().split('T')[0] ?? '';
+    }
+    // Handle JavaScript Date
+    if (timestamp instanceof Date) {
+      return timestamp.toISOString().split('T')[0] ?? '';
+    }
+    // Handle string (already formatted or ISO string)
+    if (typeof timestamp === 'string') {
+      return timestamp.split('T')[0];
+    }
+    // Handle objects with seconds/nanoseconds (Firestore Timestamp from JSON)
+    if (typeof timestamp === 'object' && timestamp !== null) {
+      // Check for Firestore timestamp structure with seconds
+      const tsObj = timestamp as { seconds?: number; nanoseconds?: number; toDate?: () => Date };
+      if (typeof tsObj.seconds === 'number') {
+        const date = new Date(tsObj.seconds * 1000);
+        return date.toISOString().split('T')[0] ?? '';
+      }
+      // Fallback to toDate method if available
+      if (typeof tsObj.toDate === 'function') {
+        return tsObj.toDate().toISOString().split('T')[0] ?? '';
+      }
+    }
+    return '';
+  } catch (error) {
+    console.error('formatDateForInput error:', error, 'timestamp:', timestamp);
+    return '';
+  }
 };
 
-const formatTimeForInput = (kickoff?: string, timestamp?: Timestamp): string => {
+const formatTimeForInput = (kickoff?: string, timestamp?: Timestamp | Date | string | null): string => {
   if (kickoff) return kickoff;
   if (!timestamp) return '7:00 PM';
-  const date = timestamp.toDate();
-  let hours = date.getHours();
-  const minutes = date.getMinutes();
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  hours = hours % 12 || 12;
-  const minuteStr = minutes < 10 ? `0${minutes}` : minutes;
-  return `${hours}:${minuteStr} ${ampm}`;
+  
+  try {
+    let date: Date;
+    if (timestamp instanceof Timestamp) {
+      date = timestamp.toDate();
+    } else if (timestamp instanceof Date) {
+      date = timestamp;
+    } else if (typeof timestamp === 'object' && timestamp !== null) {
+      const tsObj = timestamp as { seconds?: number; nanoseconds?: number; toDate?: () => Date };
+      // Check for Firestore timestamp structure with seconds
+      if (typeof tsObj.seconds === 'number') {
+        date = new Date(tsObj.seconds * 1000);
+      } else if (typeof tsObj.toDate === 'function') {
+        date = tsObj.toDate();
+      } else {
+        return '7:00 PM';
+      }
+    } else {
+      return '7:00 PM';
+    }
+    
+    let hours = date.getHours();
+    const minutes = date.getMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    const minuteStr = minutes < 10 ? `0${minutes}` : minutes;
+    return `${hours}:${minuteStr} ${ampm}`;
+  } catch (error) {
+    console.error('formatTimeForInput error:', error, 'timestamp:', timestamp);
+    return '7:00 PM';
+  }
 };
 
 const combineDateTimeToTimestamp = (date: string, time: string): Timestamp => {
@@ -208,8 +261,10 @@ const combineDateTimeToTimestamp = (date: string, time: string): Timestamp => {
     }
   }
   
-  const dateObj = new Date(date);
-  dateObj.setHours(hours, minutes, 0, 0);
+  // Parse the date string manually to avoid timezone issues
+  // HTML date inputs give us "YYYY-MM-DD" format
+  const [year, month, day] = date.split('-').map(Number);
+  const dateObj = new Date(year, month - 1, day, hours, minutes, 0, 0);
   return Timestamp.fromDate(dateObj);
 };
 
@@ -1266,36 +1321,55 @@ const GameList: React.FC = () => {
     const opponentSnapshot = {
       ...(base?.opponentSnapshot ?? {}),
       roster: normalizedRoster,
-      seasonId: base?.opponentSnapshot?.seasonId ?? activeSeasonId,
-      teamId: nextOpponentTeamId ?? base?.opponentSnapshot?.teamId,
+      seasonId: base?.opponentSnapshot?.seasonId ?? activeSeasonId ?? '',
+      teamId: nextOpponentTeamId ?? base?.opponentSnapshot?.teamId ?? '',
     };
-    return {
+    
+    // Build payload, using empty strings instead of undefined for optional string fields
+    // Firebase doesn't accept undefined values
+    const payload: Game = {
       id: base?.id ?? uuidv4(),
-      seasonId: activeSeasonId,
-      myTeamId: teamId ?? undefined,
+      seasonId: activeSeasonId ?? '',
+      myTeamId: teamId ?? '',
       opponent: gameForm.opponent.trim(),
       opponentName: gameForm.opponent.trim(),
-      opponentTeamId: nextOpponentTeamId ?? undefined,
       date: dateTimestamp,
       kickoffTime: gameForm.time,
-      location: gameForm.location.trim() || undefined,
       site: gameForm.site,
-      notes: gameForm.notes.trim() || undefined,
       status: base?.status ?? 'scheduled',
       plays: base?.plays ?? [],
       homeScore: base?.homeScore ?? 0,
       oppScore: base?.oppScore ?? 0,
       rules: base?.rules ?? defaultRules,
-      myTeamSnapshot: base?.myTeamSnapshot,
       opponentSnapshot,
       createdAt: base?.createdAt ?? now,
       updatedAt: now,
       tags: base?.tags ?? [],
     };
+    
+    // Only add optional fields if they have values
+    if (nextOpponentTeamId) {
+      payload.opponentTeamId = nextOpponentTeamId;
+    }
+    if (gameForm.location.trim()) {
+      payload.location = gameForm.location.trim();
+    }
+    if (gameForm.notes.trim()) {
+      payload.notes = gameForm.notes.trim();
+    }
+    if (base?.myTeamSnapshot) {
+      payload.myTeamSnapshot = base.myTeamSnapshot;
+    }
+    
+    return payload;
   };
 
   const handleSaveGame = async () => {
-    if (!teamId || !activeSeasonId) return;
+    if (!teamId || !activeSeasonId) {
+      console.error('Missing teamId or activeSeasonId', { teamId, activeSeasonId });
+      setGameFeedback('No team or season selected.');
+      return;
+    }
     if (!gameForm.opponent.trim()) {
       setGameFeedback('Opponent name is required.');
       return;
@@ -1310,14 +1384,16 @@ const GameList: React.FC = () => {
     try {
       const existing = selectedGameId ? games.find((game) => game.id === selectedGameId) : undefined;
       const payload = prepareGamePayload(existing ?? {});
+      console.log('Saving game payload:', payload);
       await upsertSeasonGame(teamId, activeSeasonId, payload);
       setGameFeedback(existing ? 'Game updated.' : 'Game added.');
       if (!existing) {
         resetGameForm();
       }
     } catch (error) {
-      console.error('Failed to save game', error);
-      setGameFeedback('Unable to save game. Try again.');
+      console.error('Failed to save game:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setGameFeedback(`Unable to save game: ${errorMessage}`);
     } finally {
       setGameSaving(false);
     }
@@ -1992,6 +2068,19 @@ const GameList: React.FC = () => {
             <Button bg="brand.primary" color="white" onClick={handleSaveGame} disabled={gameSaving}>
               {gameSaving ? 'Saving...' : 'Save Game'}
             </Button>
+            {selectedGameId && (
+              <Button
+                bg="brand.primary"
+                color="white"
+                onClick={async () => {
+                  await handleSaveGame();
+                  resetGameForm();
+                }}
+                disabled={gameSaving}
+              >
+                {gameSaving ? 'Saving...' : 'Save & Close'}
+              </Button>
+            )}
           </HStack>
         </Stack>
       </SectionCard>

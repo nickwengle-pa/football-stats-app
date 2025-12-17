@@ -574,6 +574,9 @@ const ScoringScreen: React.FC = () => {
       return;
     }
 
+    // Prevent Firestore subscription from overwriting our local state changes
+    skipSubscriptionUpdateRef.current = true;
+
     // Calculate time of possession for the quarter that just ended
     const quarterElapsed = 12 * 60 - timeRemaining;
     recordPossessionTime(possession);
@@ -609,10 +612,21 @@ const ScoringScreen: React.FC = () => {
       status: 'success',
       message: `Quarter ${pendingQuarterChange.newQuarter} started. Direction swapped. Clock reset to 12:00.`
     });
+
+    // Re-enable subscription updates after a short delay to let the save complete
+    setTimeout(() => {
+      skipSubscriptionUpdateRef.current = false;
+    }, 1000);
   };
 
   const handleHalftimeConfirm = async (receivingTeam: 'home' | 'away', homeDefendingGoal: 'left' | 'right') => {
-    if (!pendingQuarterChange) return;
+    // Prevent Firestore subscription from overwriting our local state changes
+    skipSubscriptionUpdateRef.current = true;
+    
+    if (!pendingQuarterChange) {
+      console.error('pendingQuarterChange is null in handleHalftimeConfirm!');
+      // Still set quarter to 3 even without pendingQuarterChange
+    }
 
     // Calculate time of possession for Q2
     const quarterElapsed = 12 * 60 - timeRemaining;
@@ -632,14 +646,24 @@ const ScoringScreen: React.FC = () => {
     setPossession(kickingTeam);
 
     // Set Direction based on Home Defending Goal
+    // Direction = which way HOME team is ATTACKING
+    // If home defends LEFT goal, home's endzone is on the LEFT, so home attacks RIGHT = left-to-right
+    // If home defends RIGHT goal, home's endzone is on the RIGHT, so home attacks LEFT = right-to-left
     const newDirection = homeDefendingGoal === 'left' ? 'left-to-right' : 'right-to-left';
     setDirection(newDirection);
 
-    // Set Field Position for Kickoff (typically 40 yard line of kicking team)
-    let kickoffSpot = 40;
+    // Set Field Position for Kickoff
+    // Kickoffs are from your own 40 yard line
+    // If home's endzone is LEFT (defends left, direction=left-to-right), home's 40 is at position 40
+    // If home's endzone is RIGHT (defends right, direction=right-to-left), home's 40 is at position 60
+    let kickoffSpot: number;
     if (newDirection === 'left-to-right') {
+      // Home endzone is LEFT side (positions 0-10)
+      // Home's 40 = position 40, Away's 40 = position 60
       kickoffSpot = kickingTeam === 'home' ? 40 : 60;
     } else {
+      // Home endzone is RIGHT side (positions 90-100)
+      // Home's 40 = position 60, Away's 40 = position 40
       kickoffSpot = kickingTeam === 'home' ? 60 : 40;
     }
     setFieldPosition(kickoffSpot);
@@ -651,10 +675,17 @@ const ScoringScreen: React.FC = () => {
     );
 
     setPendingQuarterChange(null);
+    onHalftimeClose();
+    
     setFeedback({
       status: 'success',
       message: `Quarter 3 started. ${receivingTeam === 'home' ? 'We' : 'Opponent'} receive.`
     });
+
+    // Re-enable subscription updates after a short delay to let the save complete
+    setTimeout(() => {
+      skipSubscriptionUpdateRef.current = false;
+    }, 1000);
 
     // Prompt for Kickoff
     setPendingKickoff({ kickingTeam });
@@ -884,9 +915,19 @@ const ScoringScreen: React.FC = () => {
       setPossession(kickingTeam);
 
       // Place ball at kicking team's 40-yard line
-      // If home team is kicking: their 40 is at position 40
-      // If away team is kicking: their 40 is at position 60 (100 - 40)
-      const kickoffPosition = kickingTeam === 'home' ? 40 : 60;
+      // Need to account for current direction to determine where home/away endzones are
+      // If direction is 'left-to-right', home attacks right, so home's endzone is LEFT (positions 0-10)
+      // If direction is 'right-to-left', home attacks left, so home's endzone is RIGHT (positions 90-100)
+      let kickoffPosition: number;
+      if (direction === 'left-to-right') {
+        // Home endzone is LEFT side
+        // Home's 40 = position 40, Away's 40 = position 60
+        kickoffPosition = kickingTeam === 'home' ? 40 : 60;
+      } else {
+        // Home endzone is RIGHT side
+        // Home's 40 = position 60, Away's 40 = position 40
+        kickoffPosition = kickingTeam === 'home' ? 60 : 40;
+      }
       setFieldPosition(kickoffPosition);
       setYardsToGo(10);
       setDown(1);
@@ -1079,19 +1120,19 @@ const ScoringScreen: React.FC = () => {
         setLoading(false);
 
         if (snapshot) {
-          if (snapshot.currentQuarter !== undefined) setCurrentQuarter(snapshot.currentQuarter);
+          if (snapshot.currentQuarter !== undefined && !skipSubscriptionUpdateRef.current) setCurrentQuarter(snapshot.currentQuarter);
           if (snapshot.timeRemaining !== undefined && !skipSubscriptionUpdateRef.current) setTimeRemaining(snapshot.timeRemaining);
           if (snapshot.possession !== undefined && !skipSubscriptionUpdateRef.current) setPossession(snapshot.possession);
           if (snapshot.down !== undefined && !skipSubscriptionUpdateRef.current) setDown(snapshot.down);
           if (snapshot.yardsToGo !== undefined && !skipSubscriptionUpdateRef.current) setYardsToGo(snapshot.yardsToGo);
           if (snapshot.fieldPosition !== undefined && !skipSubscriptionUpdateRef.current) setFieldPosition(snapshot.fieldPosition);
           if (snapshot.direction !== undefined && !skipSubscriptionUpdateRef.current) setDirection(snapshot.direction);
-          if (snapshot.homeTimeouts !== undefined) setHomeTimeouts(snapshot.homeTimeouts);
-          if (snapshot.awayTimeouts !== undefined) setAwayTimeouts(snapshot.awayTimeouts);
-          if (snapshot.possessionClockStart !== undefined) setPossessionClockStart(snapshot.possessionClockStart);
-          if (snapshot.homeTopSeconds !== undefined) setHomeTopSeconds(snapshot.homeTopSeconds);
-          if (snapshot.awayTopSeconds !== undefined) setAwayTopSeconds(snapshot.awayTopSeconds);
-          if (snapshot.openingKickoffReceiver !== undefined) setOpeningKickoffReceiver(snapshot.openingKickoffReceiver);
+          if (snapshot.homeTimeouts !== undefined && !skipSubscriptionUpdateRef.current) setHomeTimeouts(snapshot.homeTimeouts);
+          if (snapshot.awayTimeouts !== undefined && !skipSubscriptionUpdateRef.current) setAwayTimeouts(snapshot.awayTimeouts);
+          if (snapshot.possessionClockStart !== undefined && !skipSubscriptionUpdateRef.current) setPossessionClockStart(snapshot.possessionClockStart);
+          if (snapshot.homeTopSeconds !== undefined && !skipSubscriptionUpdateRef.current) setHomeTopSeconds(snapshot.homeTopSeconds);
+          if (snapshot.awayTopSeconds !== undefined && !skipSubscriptionUpdateRef.current) setAwayTopSeconds(snapshot.awayTopSeconds);
+          if (snapshot.openingKickoffReceiver !== undefined && !skipSubscriptionUpdateRef.current) setOpeningKickoffReceiver(snapshot.openingKickoffReceiver);
         }
 
         if (isInitialLoadRef.current) {
@@ -2141,7 +2182,7 @@ const ScoringScreen: React.FC = () => {
       type: playInput.type,
       yards: actualYards,
       playerId: finalPlayerId,
-      participants: participants.length > 0 ? participants : undefined,
+      ...(participants.length > 0 && { participants }),
       description: playDescription,
       timestamp: Timestamp.now(),
       quarter: currentQuarter,
@@ -2151,8 +2192,8 @@ const ScoringScreen: React.FC = () => {
       teamSide: side,
       resultedInFirstDown: isFirstDown,
       hashMark: hashMark,
-      offensiveFormation: offensiveFormation || undefined,
-      defensiveFormation: defensiveFormation || undefined,
+      ...(offensiveFormation && { offensiveFormation }),
+      ...(defensiveFormation && { defensiveFormation }),
     };
 
     try {
@@ -4995,20 +5036,7 @@ const ScoringScreen: React.FC = () => {
                         <Text color="gray.300">Swap field direction (teams switch sides)</Text>
                       </HStack>
                     )}
-                    <HStack gap={2}>
-                      <Text color="blue.400" fontSize="lg">•</Text>
-                      <Text color="gray.300">Reset possession clock for new quarter</Text>
-                    </HStack>
-                    <HStack gap={2}>
-                      <Text color="blue.400" fontSize="lg">•</Text>
-                      <Text color="gray.300">Continue tracking time of possession from current drive</Text>
-                    </HStack>
                   </Stack>
-                  <Box bg="blue.900" p={3} borderRadius="md" border="1px solid" borderColor="blue.400">
-                    <Text color="blue.200" fontSize="sm" fontWeight="600">
-                      ℹ️ Current possession time will carry over to the new quarter until possession changes.
-                    </Text>
-                  </Box>
                 </Stack>
               </Box>
               <Box px={6} py={4} borderTop="2px solid" borderColor="blue.400">
@@ -5271,17 +5299,19 @@ const ScoringScreen: React.FC = () => {
             borderColor="purple.400"
             maxW="600px"
             w="90%"
+            maxH="90vh"
+            display="flex"
+            flexDirection="column"
             zIndex={1001}
             onClick={(e) => e.stopPropagation()}
           >
-            <Stack gap={0}>
-              <Box px={6} py={4} borderBottom="2px solid" borderColor="purple.400">
-                <Text fontSize="xl" fontWeight="700" color="white">
-                  Kickoff Return
-                </Text>
-              </Box>
-              <Box px={6} py={6}>
-                <Stack gap={4}>
+            <Box px={6} py={4} borderBottom="2px solid" borderColor="purple.400" flexShrink={0}>
+              <Text fontSize="xl" fontWeight="700" color="white">
+                Kickoff Return
+              </Text>
+            </Box>
+            <Box px={6} py={6} overflowY="auto" flex={1}>
+              <Stack gap={4}>
                   <Text color="gray.200">
                     Select the return player from the {pendingKickoffReturn.kickingTeam === 'home' ? opponentName : teamName}:
                   </Text>
@@ -5493,7 +5523,7 @@ const ScoringScreen: React.FC = () => {
                   </Box>
                 </Stack>
               </Box>
-              <Box px={6} py={4} borderTop="2px solid" borderColor="purple.400">
+              <Box px={6} py={4} borderTop="2px solid" borderColor="purple.400" flexShrink={0}>
                 <Stack direction="row" gap={3}>
                   <Button
                     variant="ghost"
@@ -5522,7 +5552,6 @@ const ScoringScreen: React.FC = () => {
                   )}
                 </Stack>
               </Box>
-            </Stack>
           </Box>
         </Portal>
       )}
